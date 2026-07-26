@@ -8,6 +8,20 @@ A progressive educational project that shows how language models are built step 
 
 The project begins with standard Python and introduces one new concept in each version. The goal is not to compete with industrial models, but to make tokenization, probability, training, neural networks, attention and autoregressive generation easier to understand.
 
+## Project roadmap
+
+The complete project evolves through five main stages:
+
+1. statistical foundations;
+2. neural foundations;
+3. sequence models;
+4. attention and Transformer architecture;
+5. a small decoder-only language model.
+
+Each stage introduces the concepts required by the next one while keeping the implementation understandable and verifiable.
+
+![Building LLM project roadmap infographic](infographic.png)
+
 ## Current version
 
 Version 1 implements a character-level statistical language model using only Python's standard library.
