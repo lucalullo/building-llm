@@ -8,6 +8,20 @@ A progressive educational project that shows how language models are built step 
 
 The project begins with standard Python and introduces one new concept in each version. The goal is not to compete with industrial models, but to make tokenization, probability, training, neural networks, attention and autoregressive generation easier to understand.
 
+## Project roadmap
+
+The complete project evolves through five main stages:
+
+1. statistical foundations;
+2. neural foundations;
+3. sequence models;
+4. attention and Transformer architecture;
+5. a small decoder-only language model.
+
+Each stage introduces the concepts required by the next one while keeping the implementation understandable and verifiable.
+
+![Building LLM project roadmap infographic](infographic.png)
+
 ## Current version
 
 Version 1 implements a character-level statistical language model using only Python's standard library.
@@ -46,12 +60,13 @@ The model uses one character as context. The newly generated character becomes t
 
 For every character in the corpus, the model counts which characters appeared immediately after it.
 
-For example:
+For example, the word `model` produces the following adjacent-character pairs:
 
 ```text
 m → o
-m → a
-m → e
+o → d
+d → e
+e → l
 ```
 
 The transition counts are normalized into probabilities:
@@ -69,10 +84,6 @@ Generation is autoregressive:
 5. repeat.
 
 The random generator uses a local seed, making the example reproducible without modifying Python's global random state.
-
-### Version 1 architecture
-
-![Version 1 character statistical model](v01-character-model/Version%201.png)
 
 Open the folder:
 
@@ -121,7 +132,11 @@ Each completed version folder contains:
 - a Jupyter Notebook;
 - an Italian technical report;
 - an English technical report;
-- an architecture diagram.
+- a version-specific architecture diagram.
+
+The repository also includes a general project roadmap infographic:
+
+- [Building LLM roadmap infographic](infographic.png)
 
 ## Repository structure
 
@@ -133,6 +148,7 @@ building-llm/
 │   ├── Report Version 1 - Character Statistical Model.pdf
 │   └── Version 1.png
 │
+├── infographic.png
 ├── project-report-en.pdf
 ├── project-report-it.pdf
 ├── README.md
