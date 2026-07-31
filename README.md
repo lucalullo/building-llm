@@ -24,21 +24,25 @@ Each stage introduces the concepts required by the next one while keeping the im
 
 ## Current version
 
-Version 2 implements a trainable character-level neural language model using NumPy.
+Version 3 introduces the foundations of a more structured training workflow while preserving the same character-level neural language model implemented in Version 2.
 
-It continues directly from Version 1:
+It continues directly from Version 2:
 
 - the same English training corpus is used;
 - adjacent characters remain the input-target examples;
 - characters are converted into numerical identifiers;
 - input identifiers are represented as one-hot vectors;
-- a trainable weight matrix replaces direct transition counts;
-- softmax converts logits into probability distributions;
-- cross-entropy measures the prediction error;
-- gradient descent updates the model parameters;
+- the same trainable weight matrix is used;
+- the dataset is divided into training and validation sets;
+- the training examples are shuffled reproducibly;
+- gradient descent is performed using mini-batches;
+- training runs across multiple epochs;
+- training and validation loss are monitored separately;
 - text is generated one character at a time using a local random seed.
 
-The model contains 729 trainable parameters and learns to reduce the loss from approximately `3.2973` to `1.9461`.
+The model still contains 729 trainable parameters. The dataset contains 439 adjacent-character examples, divided into 351 training examples and 88 validation examples.
+
+Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2972` to `1.9876`, while the best validation loss is approximately `2.8938` and is reached around epoch 64.
 
 The first versions are language models, but they are not yet large language models. The LLM label becomes appropriate later in the project, after the introduction of subword tokenization, a decoder-only Transformer, a meaningful parameter count and training on a substantial corpus.
 
@@ -51,6 +55,12 @@ Adjacent Character Pairs
           ↓
 Numerical Character IDs
           ↓
+Train / Validation Split
+          ↓
+Training Data Shuffle
+          ↓
+Mini-Batches
+          ↓
 One-Hot Input Vectors
           ↓
 Trainable Weight Matrix
@@ -61,12 +71,14 @@ Cross-Entropy Loss
           ↓
 Gradient Descent
           ↓
+Training / Validation Monitoring
+          ↓
 Next-Character Sampling
           ↓
 Generated Text
 ```
 
-The model still uses one character as context. The difference is that next-character probabilities are now learned through optimization instead of being calculated directly from transition counts.
+The model still uses one character as context. The neural architecture remains unchanged from Version 2, while the training procedure now introduces data splitting, mini-batches and separate validation monitoring.
 
 ## Version 1 - Character Statistical Model
 
@@ -155,13 +167,77 @@ Open the folder:
 
 [`v02-numpy-neural-model`](v02-numpy-neural-model/)
 
+## Version 3 - Training Foundations
+
+Version 3 preserves the same character-level neural model introduced in Version 2 and focuses on the foundations of a more structured training procedure.
+
+The model still uses the same trainable weight matrix with shape:
+
+```text
+(27, 27)
+```
+
+This means that the architecture still contains:
+
+```text
+27 × 27 = 729 trainable parameters
+```
+
+The complete dataset contains 439 adjacent-character examples, which are divided reproducibly into:
+
+```text
+Training examples:   351
+Validation examples: 88
+```
+
+Training is performed using mini-batches:
+
+```text
+Batch size: 32
+Epochs:     100
+```
+
+The training procedure follows this sequence:
+
+1. divide the examples into training and validation sets;
+2. shuffle the training examples reproducibly;
+3. divide the training examples into mini-batches;
+4. calculate the logits;
+5. convert the logits into probabilities with softmax;
+6. calculate the cross-entropy loss;
+7. calculate the gradients;
+8. update the weights with gradient descent;
+9. repeat across multiple epochs;
+10. evaluate training and validation loss separately.
+
+After training:
+
+```text
+Initial training loss:   3.2972
+Final training loss:     1.9876
+Initial validation loss: 3.2975
+Final validation loss:   2.9037
+Best validation loss:    2.8938
+Best validation epoch:   64
+```
+
+The training loss continues to decrease, while the validation loss reaches its minimum around epoch 64 and then increases slightly.
+
+Version 3 monitors this behavior but intentionally does not yet implement early stopping or automatic restoration of the best model parameters.
+
+Generation remains autoregressive: the sampled character becomes the context for the following prediction.
+
+Open the folder:
+
+[`v03-training-foundations`](v03-training-foundations/)
+
 ## Project versions
 
 | Version | Main concept | Status |
 |---|---|---|
 | Version 1 | Character statistical model | Completed |
 | Version 2 | Neural character model with NumPy | Completed |
-| Version 3 | Training foundations | Planned |
+| Version 3 | Training foundations | Completed |
 | Version 4 | TensorFlow introduction | Planned |
 | Version 5 | Embeddings and context windows | Planned |
 | Version 6 | Recurrent language model | Planned |
@@ -177,15 +253,18 @@ Open the folder:
 
 ## Included checks
 
-The Version 2 notebook verifies:
+The Version 3 notebook verifies:
 
 - the correct number of adjacent-character examples;
 - the numerical input and target representations;
 - the shape of the one-hot input matrix;
 - the shape of the trainable weight matrix;
+- that the training and validation sets contain the expected number of examples;
+- that training and validation indices do not overlap;
 - that the probability distributions sum to 1;
-- that the final loss is lower than the initial loss;
-- that the recorded loss decreases during training;
+- that the final training loss is lower than the initial training loss;
+- that the recorded training and validation losses remain finite;
+- reproducible training with the same seed;
 - reproducible generation with the same seed;
 - the requested output length.
 
@@ -225,6 +304,12 @@ building-llm/
 │   ├── Report Version 2 - Neural Character Model with NumPy.pdf
 │   └── Version 2.png
 │
+├── v03-training-foundations/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 3 - Fondamenti del Training.pdf
+│   ├── Report Version 3 - Training Foundations.pdf
+│   └── Version 3.png
+│
 ├── infographic.png
 ├── project-report-en.pdf
 ├── project-report-it.pdf
@@ -241,7 +326,7 @@ building-llm/
 - NumPy
 - Jupyter Notebook or JupyterLab
 
-Version 1 uses only Python's standard library. Version 2 introduces NumPy for numerical representation and model training. No GPU or machine-learning framework is required.
+Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. No GPU or machine-learning framework is required.
 
 Clone the repository:
 
@@ -259,7 +344,7 @@ jupyter notebook
 Then open:
 
 ```text
-v02-numpy-neural-model/building-llm.ipynb
+v03-training-foundations/building-llm.ipynb
 ```
 
 Run the cells in order.
@@ -278,7 +363,7 @@ Each new version continues the same educational journey while preserving the com
 
 - [x] Character statistical language model
 - [x] Neural character language model with NumPy
-- [ ] Training objective, optimization and data splits
+- [x] Training objective, optimization and data splits
 - [ ] TensorFlow and automatic differentiation
 - [ ] Embeddings and larger context windows
 - [ ] Recurrent neural networks
@@ -294,15 +379,17 @@ Each new version continues the same educational journey while preserving the com
 
 ## Current limitations
 
-Version 2 is intentionally simple:
+Version 3 is intentionally simple:
 
 - the context contains only one character;
 - the training corpus is small and embedded in the notebook;
-- training and inspection use the same examples;
-- all examples are processed together in one full batch;
+- the model still contains only one trainable weight matrix;
 - there is no hidden layer or embedding;
 - gradients are calculated manually;
 - the model does not use automatic differentiation or a machine-learning framework;
+- the train/validation split is performed on individual adjacent-character examples;
+- validation loss is monitored, but early stopping is not implemented;
+- the best model parameters are not automatically restored;
 - generated text shows local patterns but no long-term coherence.
 
 These limitations define the current stage of the project.
