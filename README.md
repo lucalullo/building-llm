@@ -55,13 +55,13 @@ Adjacent Character Pairs
           ↓
 Numerical Character IDs
           ↓
+One-Hot Input Vectors
+          ↓
 Train / Validation Split
           ↓
 Training Data Shuffle
           ↓
 Mini-Batches
-          ↓
-One-Hot Input Vectors
           ↓
 Trainable Weight Matrix
           ↓
