@@ -24,17 +24,21 @@ Each stage introduces the concepts required by the next one while keeping the im
 
 ## Current version
 
-Version 1 implements a character-level statistical language model using only Python's standard library.
+Version 2 implements a trainable character-level neural language model using NumPy.
 
-The model:
+It continues directly from Version 1:
 
-- reads a small English training corpus;
-- builds a character vocabulary;
-- creates adjacent-character training examples;
-- counts character transitions;
-- converts the counts into probability distributions;
-- samples one character at a time;
-- generates text reproducibly using a local random seed.
+- the same English training corpus is used;
+- adjacent characters remain the input-target examples;
+- characters are converted into numerical identifiers;
+- input identifiers are represented as one-hot vectors;
+- a trainable weight matrix replaces direct transition counts;
+- softmax converts logits into probability distributions;
+- cross-entropy measures the prediction error;
+- gradient descent updates the model parameters;
+- text is generated one character at a time using a local random seed.
+
+The model contains 729 trainable parameters and learns to reduce the loss from approximately `3.2973` to `1.9461`.
 
 The first versions are language models, but they are not yet large language models. The LLM label becomes appropriate later in the project, after the introduction of subword tokenization, a decoder-only Transformer, a meaningful parameter count and training on a substantial corpus.
 
@@ -45,16 +49,24 @@ English Training Text
           ↓
 Adjacent Character Pairs
           ↓
-Transition Counts
+Numerical Character IDs
           ↓
-Probability Distributions
+One-Hot Input Vectors
+          ↓
+Trainable Weight Matrix
+          ↓
+Logits and Softmax Probabilities
+          ↓
+Cross-Entropy Loss
+          ↓
+Gradient Descent
           ↓
 Next-Character Sampling
           ↓
 Generated Text
 ```
 
-The model uses one character as context. The newly generated character becomes the context for the next prediction.
+The model still uses one character as context. The difference is that next-character probabilities are now learned through optimization instead of being calculated directly from transition counts.
 
 ## Version 1 - Character Statistical Model
 
@@ -89,12 +101,66 @@ Open the folder:
 
 [`v01-character-model`](v01-character-model/)
 
+## Version 2 - Neural Character Model with NumPy
+
+Version 2 preserves the character-level bigram structure introduced in Version 1, but replaces direct statistical counts with trainable parameters.
+
+Each character is converted into an integer identifier and then represented as a one-hot vector.
+
+For example:
+
+```text
+model → [15, 17, 7, 8, 14]
+```
+
+The complete input matrix has shape:
+
+```text
+(439, 27)
+```
+
+The model uses a trainable weight matrix with shape:
+
+```text
+(27, 27)
+```
+
+This produces:
+
+```text
+27 × 27 = 729 trainable parameters
+```
+
+Training follows this sequence:
+
+1. calculate the logits;
+2. convert the logits into probabilities with softmax;
+3. calculate the cross-entropy loss;
+4. calculate the gradients;
+5. update the weights with gradient descent;
+6. repeat.
+
+After training:
+
+```text
+Initial loss: 3.297271
+Final loss:   1.946110
+```
+
+The reduction in loss shows that the weight matrix has learned the character-transition patterns found in the training corpus.
+
+Generation remains autoregressive: the sampled character becomes the context for the following prediction.
+
+Open the folder:
+
+[`v02-numpy-neural-model`](v02-numpy-neural-model/)
+
 ## Project versions
 
 | Version | Main concept | Status |
 |---|---|---|
 | Version 1 | Character statistical model | Completed |
-| Version 2 | Small neural network with NumPy | Planned |
+| Version 2 | Neural character model with NumPy | Completed |
 | Version 3 | Training foundations | Planned |
 | Version 4 | TensorFlow introduction | Planned |
 | Version 5 | Embeddings and context windows | Planned |
@@ -111,14 +177,19 @@ Open the folder:
 
 ## Included checks
 
-The Version 1 notebook verifies:
+The Version 2 notebook verifies:
 
 - the correct number of adjacent-character examples;
-- that next-character probabilities sum to 1;
+- the numerical input and target representations;
+- the shape of the one-hot input matrix;
+- the shape of the trainable weight matrix;
+- that the probability distributions sum to 1;
+- that the final loss is lower than the initial loss;
+- that the recorded loss decreases during training;
 - reproducible generation with the same seed;
 - the requested output length.
 
-The notebook can be executed from top to bottom without a GPU or external packages.
+The notebook can be executed from top to bottom without a GPU. NumPy is the only external computational dependency.
 
 ## Documentation
 
@@ -148,6 +219,12 @@ building-llm/
 │   ├── Report Version 1 - Character Statistical Model.pdf
 │   └── Version 1.png
 │
+├── v02-numpy-neural-model/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 2 - Modello Neurale a Caratteri con NumPy.pdf
+│   ├── Report Version 2 - Neural Character Model with NumPy.pdf
+│   └── Version 2.png
+│
 ├── infographic.png
 ├── project-report-en.pdf
 ├── project-report-it.pdf
@@ -161,9 +238,10 @@ building-llm/
 ### Requirements
 
 - Python 3
+- NumPy
 - Jupyter Notebook or JupyterLab
 
-Version 1 uses only Python's standard library. No machine-learning framework is required.
+Version 1 uses only Python's standard library. Version 2 introduces NumPy for numerical representation and model training. No GPU or machine-learning framework is required.
 
 Clone the repository:
 
@@ -181,7 +259,7 @@ jupyter notebook
 Then open:
 
 ```text
-v01-character-model/building-llm.ipynb
+v02-numpy-neural-model/building-llm.ipynb
 ```
 
 Run the cells in order.
@@ -194,12 +272,12 @@ The project follows one main principle:
 
 Instead of starting with a complex Transformer, the project introduces each mechanism through small and understandable steps.
 
-Every completed version remains available as an independent learning resource.
+Each new version continues the same educational journey while preserving the completed stages as reference implementations.
 
 ## Roadmap
 
 - [x] Character statistical language model
-- [ ] Small neural language model with NumPy
+- [x] Neural character language model with NumPy
 - [ ] Training objective, optimization and data splits
 - [ ] TensorFlow and automatic differentiation
 - [ ] Embeddings and larger context windows
@@ -216,16 +294,18 @@ Every completed version remains available as an independent learning resource.
 
 ## Current limitations
 
-Version 1 is intentionally simple:
+Version 2 is intentionally simple:
 
 - the context contains only one character;
 - the training corpus is small and embedded in the notebook;
-- unseen transitions have zero probability;
-- the model has no trainable neural parameters;
-- it does not understand words, grammar or meaning;
-- generation quality depends entirely on the observed transition counts.
+- training and inspection use the same examples;
+- all examples are processed together in one full batch;
+- there is no hidden layer or embedding;
+- gradients are calculated manually;
+- the model does not use automatic differentiation or a machine-learning framework;
+- generated text shows local patterns but no long-term coherence.
 
-These limitations define the starting point for the following versions.
+These limitations define the current stage of the project.
 
 ## License
 
