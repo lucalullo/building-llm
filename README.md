@@ -24,25 +24,26 @@ Each stage introduces the concepts required by the next one while keeping the im
 
 ## Current version
 
-Version 3 introduces the foundations of a more structured training workflow while preserving the same character-level neural language model implemented in Version 2.
+Version 4 introduces TensorFlow and automatic differentiation while preserving the same character-level neural language model and training workflow implemented in Version 3.
 
-It continues directly from Version 2:
+It continues directly from Version 3:
 
 - the same English training corpus is used;
 - adjacent characters remain the input-target examples;
 - characters are converted into numerical identifiers;
-- input identifiers are represented as one-hot vectors;
-- the same trainable weight matrix is used;
+- input identifiers are represented as TensorFlow one-hot tensors;
+- the trainable weight matrix is stored in a `tf.Variable`;
 - the dataset is divided into training and validation sets;
 - the training examples are shuffled reproducibly;
 - gradient descent is performed using mini-batches;
 - training runs across multiple epochs;
+- `tf.GradientTape` calculates gradients automatically;
 - training and validation loss are monitored separately;
 - text is generated one character at a time using a local random seed.
 
 The model still contains 729 trainable parameters. The dataset contains 439 adjacent-character examples, divided into 351 training examples and 88 validation examples.
 
-Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2972` to `1.9876`, while the best validation loss is approximately `2.8938` and is reached around epoch 64.
+Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2960` to `1.9875`, while the best validation loss is approximately `2.8934` and is reached at epoch 64.
 
 The first versions are language models, but they are not yet large language models. The LLM label becomes appropriate later in the project, after the introduction of subword tokenization, a decoder-only Transformer, a meaningful parameter count and training on a substantial corpus.
 
@@ -55,7 +56,7 @@ Adjacent Character Pairs
           ↓
 Numerical Character IDs
           ↓
-One-Hot Input Vectors
+TensorFlow One-Hot Tensors
           ↓
 Train / Validation Split
           ↓
@@ -63,11 +64,13 @@ Training Data Shuffle
           ↓
 Mini-Batches
           ↓
-Trainable Weight Matrix
+Trainable tf.Variable Weight Matrix
           ↓
 Logits and Softmax Probabilities
           ↓
 Cross-Entropy Loss
+          ↓
+Automatic Gradients with tf.GradientTape
           ↓
 Gradient Descent
           ↓
@@ -78,7 +81,7 @@ Next-Character Sampling
 Generated Text
 ```
 
-The model still uses one character as context. The neural architecture remains unchanged from Version 2, while the training procedure now introduces data splitting, mini-batches and separate validation monitoring.
+The model still uses one character as context. The neural architecture remains unchanged, while TensorFlow tensors, trainable variables and automatic differentiation replace the corresponding manual NumPy calculations.
 
 ## Version 1 - Character Statistical Model
 
@@ -231,6 +234,62 @@ Open the folder:
 
 [`v03-training-foundations`](v03-training-foundations/)
 
+## Version 4 - Introduction to TensorFlow
+
+Version 4 rebuilds the same neural character language model with TensorFlow without changing its architecture.
+
+The model uses TensorFlow operations for its main calculations:
+
+- `tf.one_hot` creates the input tensors;
+- `tf.Variable` stores the trainable weight matrix;
+- `tf.matmul` calculates the logits;
+- `tf.nn.softmax` converts logits into probabilities;
+- `tf.nn.sparse_softmax_cross_entropy_with_logits` calculates the loss;
+- `tf.GradientTape` calculates gradients automatically;
+- `assign_sub` updates the weights.
+
+The model still uses a weight matrix with shape:
+
+```text
+(27, 27)
+```
+
+This means that the architecture still contains:
+
+```text
+27 × 27 = 729 trainable parameters
+```
+
+The training configuration remains:
+
+```text
+Training examples:   351
+Validation examples: 88
+Batch size:          32
+Epochs:              100
+```
+
+After training:
+
+```text
+Initial training loss:   3.2960
+Final training loss:     1.9875
+Initial validation loss: 3.2974
+Final validation loss:   2.9035
+Best validation loss:    2.8934
+Best validation epoch:   64
+```
+
+The results remain very close to Version 3. Small differences are expected because TensorFlow uses `float32` tensors and a different random number generator.
+
+The tests also verify that the gradients calculated automatically by TensorFlow match the gradients calculated manually.
+
+Generation remains autoregressive and uses the final weights from epoch 100.
+
+Open the folder:
+
+[`v04-tensorflow-introduction`](v04-tensorflow-introduction/)
+
 ## Project versions
 
 | Version | Main concept | Status |
@@ -238,7 +297,7 @@ Open the folder:
 | Version 1 | Character statistical model | Completed |
 | Version 2 | Neural character model with NumPy | Completed |
 | Version 3 | Training foundations | Completed |
-| Version 4 | TensorFlow introduction | Planned |
+| Version 4 | TensorFlow introduction | Completed |
 | Version 5 | Embeddings and context windows | Planned |
 | Version 6 | Recurrent language model | Planned |
 | Version 7 | GRU or LSTM model | Planned |
@@ -253,22 +312,25 @@ Open the folder:
 
 ## Included checks
 
-The Version 3 notebook verifies:
+The Version 4 notebook verifies:
 
 - the correct number of adjacent-character examples;
 - the numerical input and target representations;
-- the shape of the one-hot input matrix;
+- that the inputs are TensorFlow tensors;
+- that the weights are trainable TensorFlow variables;
+- the shape of the one-hot input tensor;
 - the shape of the trainable weight matrix;
 - that the training and validation sets contain the expected number of examples;
 - that training and validation indices do not overlap;
 - that the probability distributions sum to 1;
 - that the final training loss is lower than the initial training loss;
 - that the recorded training and validation losses remain finite;
+- that automatic and manual gradients match;
 - reproducible training with the same seed;
 - reproducible generation with the same seed;
 - the requested output length.
 
-The notebook can be executed from top to bottom without a GPU. NumPy is the only external computational dependency.
+The notebook can be executed from top to bottom without a GPU. NumPy and TensorFlow are the external computational dependencies.
 
 ## Documentation
 
@@ -310,6 +372,12 @@ building-llm/
 │   ├── Report Version 3 - Training Foundations.pdf
 │   └── Version 3.png
 │
+├── v04-tensorflow-introduction/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 4 - Introduzione a TensorFlow.pdf
+│   ├── Report Version 4 - Introduction to TensorFlow.pdf
+│   └── Version 4.png
+│
 ├── infographic.png
 ├── project-report-en.pdf
 ├── project-report-it.pdf
@@ -324,9 +392,10 @@ building-llm/
 
 - Python 3
 - NumPy
+- TensorFlow
 - Jupyter Notebook or JupyterLab
 
-Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. No GPU or machine-learning framework is required.
+Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. Version 4 uses NumPy for reproducible shuffling and sampling, while TensorFlow performs the model calculations and training. No GPU is required.
 
 Clone the repository:
 
@@ -344,7 +413,7 @@ jupyter notebook
 Then open:
 
 ```text
-v03-training-foundations/building-llm.ipynb
+v04-tensorflow-introduction/building-llm.ipynb
 ```
 
 Run the cells in order.
@@ -364,7 +433,7 @@ Each new version continues the same educational journey while preserving the com
 - [x] Character statistical language model
 - [x] Neural character language model with NumPy
 - [x] Training objective, optimization and data splits
-- [ ] TensorFlow and automatic differentiation
+- [x] TensorFlow and automatic differentiation
 - [ ] Embeddings and larger context windows
 - [ ] Recurrent neural networks
 - [ ] GRU or LSTM
@@ -379,14 +448,14 @@ Each new version continues the same educational journey while preserving the com
 
 ## Current limitations
 
-Version 3 is intentionally simple:
+Version 4 is intentionally simple:
 
 - the context contains only one character;
 - the training corpus is small and embedded in the notebook;
 - the model still contains only one trainable weight matrix;
 - there is no hidden layer or embedding;
-- gradients are calculated manually;
-- the model does not use automatic differentiation or a machine-learning framework;
+- the model remains a character-level neural bigram model;
+- TensorFlow automates the gradients but does not change the architecture;
 - the train/validation split is performed on individual adjacent-character examples;
 - validation loss is monitored, but early stopping is not implemented;
 - the best model parameters are not automatically restored;
