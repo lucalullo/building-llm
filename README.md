@@ -24,26 +24,26 @@ Each stage introduces the concepts required by the next one while keeping the im
 
 ## Current version
 
-Version 4 introduces TensorFlow and automatic differentiation while preserving the same character-level neural language model and training workflow implemented in Version 3.
+Version 5 extends the TensorFlow neural character language model from Version 4 with learned embeddings and a fixed four-character context window.
 
-It continues directly from Version 3:
+It continues directly from Version 4:
 
-- the same English training corpus is used;
-- adjacent characters remain the input-target examples;
-- characters are converted into numerical identifiers;
-- input identifiers are represented as TensorFlow one-hot tensors;
-- the trainable weight matrix is stored in a `tf.Variable`;
-- the dataset is divided into training and validation sets;
-- the training examples are shuffled reproducibly;
-- gradient descent is performed using mini-batches;
-- training runs across multiple epochs;
-- `tf.GradientTape` calculates gradients automatically;
+- the same 440-character English training corpus is used;
+- the same 27-character vocabulary is preserved;
+- each training example now uses four previous characters to predict the next character;
+- character identifiers replace one-hot vectors as the direct model inputs;
+- each character identifier selects an 8-dimensional trainable embedding vector;
+- the four embeddings are concatenated into a 32-value context representation;
+- a trainable output weight matrix converts the context representation into next-character logits;
+- the dataset is divided reproducibly into training and validation sets;
+- the training examples are shuffled and processed in mini-batches;
+- `tf.GradientTape` calculates gradients for both trainable parameter sets;
 - training and validation loss are monitored separately;
-- text is generated one character at a time using a local random seed.
+- text generation remains autoregressive and now uses a sliding four-character context window.
 
-The model still contains 729 trainable parameters. The dataset contains 439 adjacent-character examples, divided into 351 training examples and 88 validation examples.
+The model contains 1080 trainable parameters: 216 values in the embedding matrix and 864 values in the output weight matrix. The dataset contains 436 context-target examples, divided into 348 training examples and 88 validation examples.
 
-Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2960` to `1.9875`, while the best validation loss is approximately `2.8934` and is reached at epoch 64.
+Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2958` to `0.5043`. Validation loss reaches its best value of approximately `2.8413` at epoch 14 and then increases to approximately `6.6350` by epoch 100, showing clear overfitting on the small corpus.
 
 The first versions are language models, but they are not yet large language models. The LLM label becomes appropriate later in the project, after the introduction of subword tokenization, a decoder-only Transformer, a meaningful parameter count and training on a substantial corpus.
 
@@ -52,11 +52,9 @@ The first versions are language models, but they are not yet large language mode
 ```text
 English Training Text
           ↓
-Adjacent Character Pairs
+4-Character Context Windows
           ↓
 Numerical Character IDs
-          ↓
-TensorFlow One-Hot Tensors
           ↓
 Train / Validation Split
           ↓
@@ -64,7 +62,13 @@ Training Data Shuffle
           ↓
 Mini-Batches
           ↓
-Trainable tf.Variable Weight Matrix
+Trainable Embedding Matrix (27, 8)
+          ↓
+4 Embeddings per Context
+          ↓
+Flattened Context Vector (32 values)
+          ↓
+Trainable Output Weight Matrix (32, 27)
           ↓
 Logits and Softmax Probabilities
           ↓
@@ -76,12 +80,12 @@ Gradient Descent
           ↓
 Training / Validation Monitoring
           ↓
-Next-Character Sampling
+Sliding-Window Next-Character Sampling
           ↓
 Generated Text
 ```
 
-The model still uses one character as context. The neural architecture remains unchanged, while TensorFlow tensors, trainable variables and automatic differentiation replace the corresponding manual NumPy calculations.
+The model now uses four previous characters as context instead of one. Learned embeddings replace sparse one-hot vectors, but the four embeddings are still concatenated into a fixed flattened representation and sent directly through a linear output projection.
 
 ## Version 1 - Character Statistical Model
 
@@ -290,6 +294,78 @@ Open the folder:
 
 [`v04-tensorflow-introduction`](v04-tensorflow-introduction/)
 
+## Version 5 - Embeddings and Context Window
+
+Version 5 changes the predictive model for the first time since the neural bigram was introduced.
+
+Instead of representing one current character with a one-hot vector, the model now uses a fixed context containing four character identifiers:
+
+```text
+mode → l
+odel → i
+deli → n
+elin → g
+```
+
+Each identifier selects one row from a trainable embedding matrix:
+
+```text
+Embedding matrix: (27, 8)
+```
+
+The four selected embedding vectors are concatenated:
+
+```text
+4 × 8 = 32 context values
+```
+
+The flattened context is multiplied by the trainable output matrix:
+
+```text
+Output weight matrix: (32, 27)
+```
+
+The complete architecture therefore contains:
+
+```text
+27 × 8 + 32 × 27 = 1080 trainable parameters
+```
+
+The dataset contains 436 context-target examples, divided reproducibly into:
+
+```text
+Training examples:   348
+Validation examples: 88
+```
+
+The training configuration remains intentionally close to Version 4:
+
+```text
+Learning rate: 1.0
+Batch size:    32
+Epochs:        100
+Seed:          42
+```
+
+After training:
+
+```text
+Initial training loss:   3.2958
+Final training loss:     0.5043
+Initial validation loss: 3.2958
+Final validation loss:   6.6350
+Best validation loss:    2.8413
+Best validation epoch:   14
+```
+
+Training loss decreases strongly, while validation loss reaches its minimum at epoch 14 and then increases substantially. This shows clear overfitting: the larger context-based model fits the small training corpus much more strongly than the earlier one-character model.
+
+Generation remains autoregressive, but the context now moves as a sliding four-character window. After a new character is sampled, the oldest context character is removed and the new character becomes part of the next prediction.
+
+Open the folder:
+
+[`v05-embeddings-context-window`](v05-embeddings-context-window/)
+
 ## Project versions
 
 | Version | Main concept | Status |
@@ -298,7 +374,7 @@ Open the folder:
 | Version 2 | Neural character model with NumPy | Completed |
 | Version 3 | Training foundations | Completed |
 | Version 4 | TensorFlow introduction | Completed |
-| Version 5 | Embeddings and context windows | Planned |
+| Version 5 | Embeddings and context window | Completed |
 | Version 6 | Recurrent language model | Planned |
 | Version 7 | GRU or LSTM model | Planned |
 | Version 8 | Attention | Planned |
@@ -312,23 +388,26 @@ Open the folder:
 
 ## Included checks
 
-The Version 4 notebook verifies:
+The Version 5 notebook verifies:
 
-- the correct number of adjacent-character examples;
+- the correct number of four-character context-target examples;
 - the numerical input and target representations;
+- the construction of the first sliding context windows directly from the corpus;
 - that the inputs are TensorFlow tensors;
-- that the weights are trainable TensorFlow variables;
-- the shape of the one-hot input tensor;
-- the shape of the trainable weight matrix;
-- that the training and validation sets contain the expected number of examples;
+- that the embedding matrix and output weights are trainable TensorFlow variables;
+- the shapes of the input tensor, embedding matrix and output weight matrix;
+- that the training and validation sets together cover all examples;
 - that training and validation indices do not overlap;
-- that the probability distributions sum to 1;
+- that training and validation loss histories contain the expected number of measurements;
 - that the final training loss is lower than the initial training loss;
 - that the recorded training and validation losses remain finite;
-- that automatic and manual gradients match;
-- reproducible training with the same seed;
+- that the probability distributions sum to 1;
+- that TensorFlow produces finite gradients for both trainable parameter sets;
+- that the gradient shapes match the corresponding variables;
+- that both the embedding matrix and output weights actually change during training;
+- reproducible retraining from the same initial parameters and seed;
 - reproducible generation with the same seed;
-- the requested output length.
+- the requested output length and starting context.
 
 The notebook can be executed from top to bottom without a GPU. NumPy and TensorFlow are the external computational dependencies.
 
@@ -378,6 +457,12 @@ building-llm/
 │   ├── Report Version 4 - Introduction to TensorFlow.pdf
 │   └── Version 4.png
 │
+├── v05-embeddings-context-window/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 5 - Embedding e Finestra di contesto.pdf
+│   ├── Report Version 5 - Embeddings and Context Window.pdf
+│   └── Version 5.png
+│
 ├── infographic.png
 ├── project-report-en.pdf
 ├── project-report-it.pdf
@@ -395,7 +480,7 @@ building-llm/
 - TensorFlow
 - Jupyter Notebook or JupyterLab
 
-Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. Version 4 uses NumPy for reproducible shuffling and sampling, while TensorFlow performs the model calculations and training. No GPU is required.
+Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. Versions 4 and 5 use NumPy for reproducible data handling and sampling, while TensorFlow performs the model calculations, trainable parameter updates and automatic differentiation. No GPU is required.
 
 Clone the repository:
 
@@ -413,7 +498,7 @@ jupyter notebook
 Then open:
 
 ```text
-v04-tensorflow-introduction/building-llm.ipynb
+v05-embeddings-context-window/building-llm.ipynb
 ```
 
 Run the cells in order.
@@ -434,7 +519,7 @@ Each new version continues the same educational journey while preserving the com
 - [x] Neural character language model with NumPy
 - [x] Training objective, optimization and data splits
 - [x] TensorFlow and automatic differentiation
-- [ ] Embeddings and larger context windows
+- [x] Embeddings and larger context windows
 - [ ] Recurrent neural networks
 - [ ] GRU or LSTM
 - [ ] Scaled dot-product attention
@@ -448,20 +533,21 @@ Each new version continues the same educational journey while preserving the com
 
 ## Current limitations
 
-Version 4 is intentionally simple:
+Version 5 is intentionally simple:
 
-- the context contains only one character;
-- the training corpus is small and embedded in the notebook;
-- the model still contains only one trainable weight matrix;
-- there is no hidden layer or embedding;
-- the model remains a character-level neural bigram model;
-- TensorFlow automates the gradients but does not change the architecture;
-- the train/validation split is performed on individual adjacent-character examples;
+- the context has a fixed length of four characters;
+- the training corpus is small and embedded directly in the notebook;
+- neighboring context windows overlap and the random example-level split can place similar windows in both training and validation;
+- the model uses a trainable embedding matrix and one trainable output weight matrix, but no hidden nonlinear layer;
+- the four embeddings are concatenated into a fixed flattened representation;
+- there is no recurrent state or attention mechanism;
 - validation loss is monitored, but early stopping is not implemented;
 - the best model parameters are not automatically restored;
-- generated text shows local patterns but no long-term coherence.
+- generation uses the final epoch-100 parameters even though validation loss is best at epoch 14;
+- validation is not a robust estimate of generalization to a different corpus;
+- generated text captures stronger local character patterns but still has no long-term coherence.
 
-These limitations define the current stage of the project.
+These limitations define the current stage of the project and prepare the transition to sequence modeling in Version 6.
 
 ## License
 
