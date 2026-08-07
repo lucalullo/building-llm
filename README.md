@@ -24,25 +24,26 @@ Each stage introduces the concepts required by the next one while keeping the im
 
 ## Current version
 
-Version 6 extends the TensorFlow neural character language model from Version 5 with a simple recurrent neural network and a hidden state that carries information through an ordered four-character context.
+Version 7 extends the TensorFlow recurrent neural character language model from Version 6 with a gated recurrent unit (GRU).
 
-It continues directly from Version 5:
+It continues directly from Version 6:
 
 - the same 440-character English training corpus is used;
 - the same 27-character vocabulary is preserved;
 - each training example still uses four previous characters to predict the next character;
 - each character identifier still selects an 8-dimensional trainable embedding vector;
-- the four embeddings are processed sequentially instead of being concatenated into one flattened vector;
+- the four embeddings are still processed sequentially from left to right;
 - a 16-dimensional recurrent hidden state carries information from one context position to the next;
-- the model learns embedding, input-to-hidden, hidden-to-hidden and hidden-to-output weights;
-- the recurrent weights are reused at every position in the context;
-- `tf.GradientTape` calculates gradients for all four trainable parameter matrices;
+- the simple recurrent `tanh` update is replaced by an update gate, a reset gate and a candidate hidden state;
+- the same GRU weights are reused at every position in the context;
+- `tf.GradientTape` calculates gradients for all eight trainable parameter matrices;
+- the parameters are updated manually with gradient descent;
 - training and validation loss are monitored separately;
 - text generation remains autoregressive and uses a sliding four-character context window.
 
-The model contains 1032 trainable parameters: 216 values in the embedding matrix, 128 in the input-to-hidden matrix, 256 in the recurrent matrix and 432 in the output matrix. The dataset still contains 436 context-target examples, divided into 348 training examples and 88 validation examples.
+The model contains 1800 trainable parameters: 216 values in the embedding matrix, 128 and 256 values in the update-gate input and recurrent matrices, 128 and 256 in the reset-gate matrices, 128 and 256 in the candidate-state matrices, and 432 in the output matrix. The dataset still contains 436 context-target examples, divided into 348 training examples and 88 validation examples.
 
-Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2958` to `1.5251`. Validation loss reaches its best value of approximately `2.8396` at epoch 92 and finishes at approximately `3.0352` at epoch 100, showing the beginning of overfitting.
+Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2958` to `2.6596`. Validation loss reaches its best value of approximately `2.8995` at epoch 99 and finishes at approximately `2.9139` at epoch 100, suggesting the beginning of mild overfitting.
 
 The first versions are language models, but they are not yet large language models. The LLM label becomes appropriate later in the project, after the introduction of subword tokenization, a decoder-only Transformer, a meaningful parameter count and training on a substantial corpus.
 
@@ -65,13 +66,11 @@ Trainable Embedding Matrix (27, 8)
           ↓
 Ordered Embedding Sequence
           ↓
-Input-to-Hidden Weights (8, 16)
+Sequential GRU Processing
           ↓
-Recurrent Hidden State (16 values)
+Update Gate + Reset Gate + Candidate Hidden State
           ↓
-Hidden-to-Hidden Weights (16, 16)
-          ↓
-Final Hidden State
+Final Hidden State (16 values)
           ↓
 Trainable Output Weight Matrix (16, 27)
           ↓
@@ -81,7 +80,7 @@ Cross-Entropy Loss
           ↓
 Automatic Gradients with tf.GradientTape
           ↓
-Gradient Descent
+Manual Gradient Descent
           ↓
 Training / Validation Monitoring
           ↓
@@ -90,7 +89,7 @@ Sliding-Window Next-Character Sampling
 Generated Text
 ```
 
-The model still uses four previous characters as context, but their embeddings are no longer flattened into a fixed representation. Version 6 processes them from left to right with a shared recurrent transformation, producing a nonlinear hidden state that carries information through the ordered context.
+The model still uses four previous characters as context. Version 7 processes their embeddings from left to right with a shared GRU transformation. The update gate controls how much of the previous hidden state is preserved, the reset gate controls how previous information contributes to the candidate state, and the final hidden state summarizes the ordered context before the output projection.
 
 ## Version 1 - Character Statistical Model
 
@@ -437,6 +436,81 @@ Open the folder:
 
 [`v06-recurrent-language-model`](v06-recurrent-language-model/)
 
+## Version 7 - GRU Language Model
+
+Version 7 replaces the simple recurrent hidden-state update from Version 6 with a gated recurrent unit (GRU).
+
+The same four-character context windows, trainable embeddings and 16-dimensional hidden state are preserved. The four embeddings are still processed sequentially from left to right, but the recurrent update now uses learned gates.
+
+At every context position, the model calculates:
+
+```text
+update gate
+reset gate
+candidate hidden state
+        ↓
+gated hidden-state update
+```
+
+The update gate controls how much of the previous hidden state is preserved. The reset gate controls how much previous information contributes to the candidate state. The candidate state uses `tanh`, while the update and reset gates use sigmoid activations.
+
+The GRU uses the following trainable matrices:
+
+```text
+Embedding matrix:             (27, 8)
+Update input weights:          (8, 16)
+Update recurrent weights:     (16, 16)
+Reset input weights:           (8, 16)
+Reset recurrent weights:      (16, 16)
+Candidate input weights:       (8, 16)
+Candidate recurrent weights:  (16, 16)
+Output weights:               (16, 27)
+```
+
+The complete architecture therefore contains:
+
+```text
+27 × 8
++ 3 × (8 × 16 + 16 × 16)
++ 16 × 27
+= 1800 trainable parameters
+```
+
+The dataset remains unchanged from Version 6:
+
+```text
+Training examples:   348
+Validation examples: 88
+```
+
+The training configuration remains intentionally simple:
+
+```text
+Learning rate: 1.0
+Batch size:    32
+Epochs:        100
+Seed:          42
+```
+
+After training:
+
+```text
+Initial training loss:   3.2958
+Final training loss:     2.6596
+Initial validation loss: 3.2958
+Final validation loss:   2.9139
+Best validation loss:    2.8995
+Best validation epoch:   99
+```
+
+The GRU learns slowly during the first part of training. Validation loss reaches its minimum at epoch 99 and increases slightly at the final epoch, suggesting the beginning of mild overfitting.
+
+Generation remains autoregressive with a sliding four-character context window. Each window is processed by the GRU from a zero hidden state, matching the training procedure.
+
+Open the folder:
+
+[`v07-gru-language-model`](v07-gru-language-model/)
+
 ## Project versions
 
 | Version | Main concept | Status |
@@ -447,7 +521,7 @@ Open the folder:
 | Version 4 | TensorFlow introduction | Completed |
 | Version 5 | Embeddings and context window | Completed |
 | Version 6 | Recurrent language model | Completed |
-| Version 7 | GRU or LSTM model | Planned |
+| Version 7 | GRU language model | Completed |
 | Version 8 | Attention | Planned |
 | Version 9 | Transformer block | Planned |
 | Version 10 | Mini decoder-only language model | Planned |
@@ -459,22 +533,25 @@ Open the folder:
 
 ## Included checks
 
-The Version 6 notebook verifies:
+The Version 7 notebook verifies:
 
 - the correct number of four-character context-target examples;
 - the numerical input and target representations;
 - the construction of the first sliding context windows directly from the corpus;
 - that the inputs are TensorFlow tensors;
-- that the embedding, input, recurrent and output weights are trainable TensorFlow variables;
-- the shapes of the input tensor, embedding matrix, recurrent parameter matrices, hidden state and logits;
-- that recurrent hidden states remain finite and within the range produced by `tanh`;
+- that all eight trainable parameter matrices are TensorFlow variables;
+- the shapes of the input tensor, embedding matrix, GRU parameter matrices, hidden state and logits;
+- that the model contains exactly 1800 trainable parameters;
+- that update and reset gate values remain between 0 and 1;
+- that candidate hidden-state values remain between -1 and 1;
+- that recurrent hidden states remain finite and between -1 and 1;
 - that the training and validation sets together cover all examples;
 - that training and validation indices do not overlap;
 - that training and validation loss histories contain the expected number of measurements;
 - that the final training loss is lower than the initial training loss;
 - that the recorded training and validation losses remain finite;
 - that the probability distributions sum to 1;
-- that TensorFlow produces finite gradients for all four trainable parameter matrices;
+- that TensorFlow produces finite gradients for all eight trainable parameter matrices;
 - that the gradient shapes match the corresponding variables;
 - that every trainable parameter matrix actually changes during training;
 - reproducible retraining from the same initial parameters and seed;
@@ -541,6 +618,12 @@ building-llm/
 │   ├── Report Version 6 - Recurrent Language Model.pdf
 │   └── Version 6.png
 │
+├── v07-gru-language-model/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 7 - Modello Linguistico GRU.pdf
+│   ├── Report Version 7 - GRU Language Model.pdf
+│   └── Version 7.png
+│
 ├── infographic.png
 ├── project-report-en.pdf
 ├── project-report-it.pdf
@@ -558,7 +641,7 @@ building-llm/
 - TensorFlow
 - Jupyter Notebook or JupyterLab
 
-Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. Versions 4, 5 and 6 use NumPy for reproducible data handling and sampling, while TensorFlow performs the model calculations, trainable parameter updates and automatic differentiation. No GPU is required.
+Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. Versions 4, 5, 6 and 7 use NumPy for reproducible data handling and sampling, while TensorFlow performs the model calculations, trainable parameter updates and automatic differentiation. No GPU is required.
 
 Clone the repository:
 
@@ -576,7 +659,7 @@ jupyter notebook
 Then open:
 
 ```text
-v06-recurrent-language-model/building-llm.ipynb
+v07-gru-language-model/building-llm.ipynb
 ```
 
 Run the cells in order.
@@ -599,7 +682,7 @@ Each new version continues the same educational journey while preserving the com
 - [x] TensorFlow and automatic differentiation
 - [x] Embeddings and larger context windows
 - [x] Recurrent neural networks
-- [ ] GRU or LSTM
+- [x] GRU
 - [ ] Scaled dot-product attention
 - [ ] Transformer block
 - [ ] Decoder-only Transformer
@@ -611,21 +694,22 @@ Each new version continues the same educational journey while preserving the com
 
 ## Current limitations
 
-Version 6 is intentionally simple:
+Version 7 is intentionally simple:
 
 - the context still has a fixed length of four characters;
 - the training corpus is small and embedded directly in the notebook;
 - neighboring context windows overlap and the random example-level split can place similar windows in both training and validation;
 - the hidden state starts from zeros for every training example;
 - generation also recomputes each four-character window from a zero hidden state instead of preserving the recurrent state indefinitely;
-- the recurrent unit uses a simple `tanh` transformation without gates or bias terms;
+- the GRU uses update and reset gates but intentionally does not use bias terms;
+- training uses plain mini-batch gradient descent with a fixed learning rate;
 - validation loss is monitored, but early stopping is not implemented;
 - the best model parameters are not automatically restored;
-- generation uses the final epoch-100 parameters even though validation loss is best at epoch 92;
+- generation uses the final epoch-100 parameters even though validation loss is best at epoch 99;
 - validation is not a robust estimate of generalization to a different corpus;
 - generated text captures local sequential patterns but still has no long-term coherence.
 
-These limitations define the current stage of the project and prepare the transition to GRU or LSTM models in Version 7.
+These limitations define the current stage of the project and prepare the transition to attention mechanisms in Version 8.
 
 ## License
 
