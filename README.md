@@ -24,26 +24,25 @@ Each stage introduces the concepts required by the next one while keeping the im
 
 ## Current version
 
-Version 5 extends the TensorFlow neural character language model from Version 4 with learned embeddings and a fixed four-character context window.
+Version 6 extends the TensorFlow neural character language model from Version 5 with a simple recurrent neural network and a hidden state that carries information through an ordered four-character context.
 
-It continues directly from Version 4:
+It continues directly from Version 5:
 
 - the same 440-character English training corpus is used;
 - the same 27-character vocabulary is preserved;
-- each training example now uses four previous characters to predict the next character;
-- character identifiers replace one-hot vectors as the direct model inputs;
-- each character identifier selects an 8-dimensional trainable embedding vector;
-- the four embeddings are concatenated into a 32-value context representation;
-- a trainable output weight matrix converts the context representation into next-character logits;
-- the dataset is divided reproducibly into training and validation sets;
-- the training examples are shuffled and processed in mini-batches;
-- `tf.GradientTape` calculates gradients for both trainable parameter sets;
+- each training example still uses four previous characters to predict the next character;
+- each character identifier still selects an 8-dimensional trainable embedding vector;
+- the four embeddings are processed sequentially instead of being concatenated into one flattened vector;
+- a 16-dimensional recurrent hidden state carries information from one context position to the next;
+- the model learns embedding, input-to-hidden, hidden-to-hidden and hidden-to-output weights;
+- the recurrent weights are reused at every position in the context;
+- `tf.GradientTape` calculates gradients for all four trainable parameter matrices;
 - training and validation loss are monitored separately;
-- text generation remains autoregressive and now uses a sliding four-character context window.
+- text generation remains autoregressive and uses a sliding four-character context window.
 
-The model contains 1080 trainable parameters: 216 values in the embedding matrix and 864 values in the output weight matrix. The dataset contains 436 context-target examples, divided into 348 training examples and 88 validation examples.
+The model contains 1032 trainable parameters: 216 values in the embedding matrix, 128 in the input-to-hidden matrix, 256 in the recurrent matrix and 432 in the output matrix. The dataset still contains 436 context-target examples, divided into 348 training examples and 88 validation examples.
 
-Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2958` to `0.5043`. Validation loss reaches its best value of approximately `2.8413` at epoch 14 and then increases to approximately `6.6350` by epoch 100, showing clear overfitting on the small corpus.
+Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2958` to `1.5251`. Validation loss reaches its best value of approximately `2.8396` at epoch 92 and finishes at approximately `3.0352` at epoch 100, showing the beginning of overfitting.
 
 The first versions are language models, but they are not yet large language models. The LLM label becomes appropriate later in the project, after the introduction of subword tokenization, a decoder-only Transformer, a meaningful parameter count and training on a substantial corpus.
 
@@ -64,11 +63,17 @@ Mini-Batches
           ↓
 Trainable Embedding Matrix (27, 8)
           ↓
-4 Embeddings per Context
+Ordered Embedding Sequence
           ↓
-Flattened Context Vector (32 values)
+Input-to-Hidden Weights (8, 16)
           ↓
-Trainable Output Weight Matrix (32, 27)
+Recurrent Hidden State (16 values)
+          ↓
+Hidden-to-Hidden Weights (16, 16)
+          ↓
+Final Hidden State
+          ↓
+Trainable Output Weight Matrix (16, 27)
           ↓
 Logits and Softmax Probabilities
           ↓
@@ -85,7 +90,7 @@ Sliding-Window Next-Character Sampling
 Generated Text
 ```
 
-The model now uses four previous characters as context instead of one. Learned embeddings replace sparse one-hot vectors, but the four embeddings are still concatenated into a fixed flattened representation and sent directly through a linear output projection.
+The model still uses four previous characters as context, but their embeddings are no longer flattened into a fixed representation. Version 6 processes them from left to right with a shared recurrent transformation, producing a nonlinear hidden state that carries information through the ordered context.
 
 ## Version 1 - Character Statistical Model
 
@@ -366,6 +371,72 @@ Open the folder:
 
 [`v05-embeddings-context-window`](v05-embeddings-context-window/)
 
+## Version 6 - Recurrent Language Model
+
+Version 6 replaces the flattened context representation from Version 5 with a simple recurrent neural network.
+
+The same four-character context windows and trainable embeddings are preserved, but the four embeddings are now processed sequentially from left to right.
+
+At every context position, the model updates a hidden state using the current embedding and the previous hidden state:
+
+```text
+current embedding + previous hidden state
+                    ↓
+                   tanh
+                    ↓
+             new hidden state
+```
+
+The recurrent model uses the following trainable matrices:
+
+```text
+Embedding matrix:        (27, 8)
+Input-to-hidden weights:  (8, 16)
+Recurrent weights:       (16, 16)
+Output weights:          (16, 27)
+```
+
+The complete architecture therefore contains:
+
+```text
+27 × 8 + 8 × 16 + 16 × 16 + 16 × 27 = 1032 trainable parameters
+```
+
+The dataset remains unchanged from Version 5:
+
+```text
+Training examples:   348
+Validation examples: 88
+```
+
+The training configuration remains intentionally simple:
+
+```text
+Learning rate: 1.0
+Batch size:    32
+Epochs:        100
+Seed:          42
+```
+
+After training:
+
+```text
+Initial training loss:   3.2958
+Final training loss:     1.5251
+Initial validation loss: 3.2958
+Final validation loss:   3.0352
+Best validation loss:    2.8396
+Best validation epoch:   92
+```
+
+The recurrent model learns slowly during the first part of training. Validation loss reaches its minimum much later than in Version 5 and increases only slightly afterward, showing the beginning of overfitting.
+
+Generation remains autoregressive with a sliding four-character context window. Each window is processed recurrently from a zero hidden state, matching the training procedure.
+
+Open the folder:
+
+[`v06-recurrent-language-model`](v06-recurrent-language-model/)
+
 ## Project versions
 
 | Version | Main concept | Status |
@@ -375,7 +446,7 @@ Open the folder:
 | Version 3 | Training foundations | Completed |
 | Version 4 | TensorFlow introduction | Completed |
 | Version 5 | Embeddings and context window | Completed |
-| Version 6 | Recurrent language model | Planned |
+| Version 6 | Recurrent language model | Completed |
 | Version 7 | GRU or LSTM model | Planned |
 | Version 8 | Attention | Planned |
 | Version 9 | Transformer block | Planned |
@@ -388,23 +459,24 @@ Open the folder:
 
 ## Included checks
 
-The Version 5 notebook verifies:
+The Version 6 notebook verifies:
 
 - the correct number of four-character context-target examples;
 - the numerical input and target representations;
 - the construction of the first sliding context windows directly from the corpus;
 - that the inputs are TensorFlow tensors;
-- that the embedding matrix and output weights are trainable TensorFlow variables;
-- the shapes of the input tensor, embedding matrix and output weight matrix;
+- that the embedding, input, recurrent and output weights are trainable TensorFlow variables;
+- the shapes of the input tensor, embedding matrix, recurrent parameter matrices, hidden state and logits;
+- that recurrent hidden states remain finite and within the range produced by `tanh`;
 - that the training and validation sets together cover all examples;
 - that training and validation indices do not overlap;
 - that training and validation loss histories contain the expected number of measurements;
 - that the final training loss is lower than the initial training loss;
 - that the recorded training and validation losses remain finite;
 - that the probability distributions sum to 1;
-- that TensorFlow produces finite gradients for both trainable parameter sets;
+- that TensorFlow produces finite gradients for all four trainable parameter matrices;
 - that the gradient shapes match the corresponding variables;
-- that both the embedding matrix and output weights actually change during training;
+- that every trainable parameter matrix actually changes during training;
 - reproducible retraining from the same initial parameters and seed;
 - reproducible generation with the same seed;
 - the requested output length and starting context.
@@ -463,6 +535,12 @@ building-llm/
 │   ├── Report Version 5 - Embeddings and Context Window.pdf
 │   └── Version 5.png
 │
+├── v06-recurrent-language-model/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 6 - Modello Linguistico Ricorrente.pdf
+│   ├── Report Version 6 - Recurrent Language Model.pdf
+│   └── Version 6.png
+│
 ├── infographic.png
 ├── project-report-en.pdf
 ├── project-report-it.pdf
@@ -480,7 +558,7 @@ building-llm/
 - TensorFlow
 - Jupyter Notebook or JupyterLab
 
-Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. Versions 4 and 5 use NumPy for reproducible data handling and sampling, while TensorFlow performs the model calculations, trainable parameter updates and automatic differentiation. No GPU is required.
+Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. Versions 4, 5 and 6 use NumPy for reproducible data handling and sampling, while TensorFlow performs the model calculations, trainable parameter updates and automatic differentiation. No GPU is required.
 
 Clone the repository:
 
@@ -498,7 +576,7 @@ jupyter notebook
 Then open:
 
 ```text
-v05-embeddings-context-window/building-llm.ipynb
+v06-recurrent-language-model/building-llm.ipynb
 ```
 
 Run the cells in order.
@@ -520,7 +598,7 @@ Each new version continues the same educational journey while preserving the com
 - [x] Training objective, optimization and data splits
 - [x] TensorFlow and automatic differentiation
 - [x] Embeddings and larger context windows
-- [ ] Recurrent neural networks
+- [x] Recurrent neural networks
 - [ ] GRU or LSTM
 - [ ] Scaled dot-product attention
 - [ ] Transformer block
@@ -533,21 +611,21 @@ Each new version continues the same educational journey while preserving the com
 
 ## Current limitations
 
-Version 5 is intentionally simple:
+Version 6 is intentionally simple:
 
-- the context has a fixed length of four characters;
+- the context still has a fixed length of four characters;
 - the training corpus is small and embedded directly in the notebook;
 - neighboring context windows overlap and the random example-level split can place similar windows in both training and validation;
-- the model uses a trainable embedding matrix and one trainable output weight matrix, but no hidden nonlinear layer;
-- the four embeddings are concatenated into a fixed flattened representation;
-- there is no recurrent state or attention mechanism;
+- the hidden state starts from zeros for every training example;
+- generation also recomputes each four-character window from a zero hidden state instead of preserving the recurrent state indefinitely;
+- the recurrent unit uses a simple `tanh` transformation without gates or bias terms;
 - validation loss is monitored, but early stopping is not implemented;
 - the best model parameters are not automatically restored;
-- generation uses the final epoch-100 parameters even though validation loss is best at epoch 14;
+- generation uses the final epoch-100 parameters even though validation loss is best at epoch 92;
 - validation is not a robust estimate of generalization to a different corpus;
-- generated text captures stronger local character patterns but still has no long-term coherence.
+- generated text captures local sequential patterns but still has no long-term coherence.
 
-These limitations define the current stage of the project and prepare the transition to sequence modeling in Version 6.
+These limitations define the current stage of the project and prepare the transition to GRU or LSTM models in Version 7.
 
 ## License
 
