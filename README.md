@@ -24,82 +24,158 @@ Each stage introduces the concepts required by the next one while keeping the im
 
 ## Current version
 
-Version 8 replaces the gated recurrent processing from Version 7 with explicit scaled dot-product attention.
+Version 9 extends the explicit scaled dot-product attention introduced in Version 8 into a complete single causal Transformer block.
 
-It continues directly from Version 7:
+It continues directly from Version 8:
 
 - the same 440-character English training corpus is used;
 - the same 27-character vocabulary is preserved;
-- each training example still uses four previous characters to predict the next character;
-- each character identifier still selects an 8-dimensional trainable embedding vector;
-- recurrent processing is removed;
-- a trainable positional embedding is added at each of the four context positions so that sequence order remains explicit;
+- each training example still begins with a four-character context;
+- each input context now has four aligned next-character targets;
+- each character identifier selects an 8-dimensional trainable embedding vector;
+- trainable positional embeddings preserve sequence order;
 - the positioned embeddings are projected into query, key and value representations;
-- queries and keys are compared with scaled dot products;
-- softmax converts the scaled scores into normalized attention weights;
-- the attention weights combine the value vectors into contextual representations;
-- only the contextual representation of the final position is used for next-character prediction;
-- `tf.GradientTape` calculates gradients for all six trainable parameter matrices;
-- the parameters are updated manually with gradient descent;
+- scaled dot-product self-attention compares all positions;
+- a causal mask prevents every position from attending to future positions;
+- the attention output is projected back from 16 to 8 dimensions;
+- a residual connection and LayerNorm follow the attention sublayer;
+- a position-wise feed-forward network expands the representation from 8 to 16 dimensions and projects it back to 8;
+- a second residual connection and LayerNorm complete the Transformer block;
+- vocabulary logits are produced at every context position during training;
+- cross-entropy loss is calculated over all four sequential targets;
+- `tf.GradientTape` calculates gradients for all 13 trainable TensorFlow variables;
+- the parameters are updated manually with mini-batch gradient descent;
 - training and validation loss are monitored separately;
-- text generation remains autoregressive and uses a sliding four-character context window.
+- autoregressive generation uses only the logits from the final sequence position;
+- generation continues with a sliding four-character context window.
 
-The model contains 1064 trainable parameters: 216 values in the character embedding matrix, 32 in the positional embedding matrix, 128 values in each of the query, key and value projection matrices, and 432 in the output matrix. The dataset still contains 436 context-target examples, divided into 348 training examples and 88 validation examples.
+The model contains exactly 1264 trainable parameters:
 
-Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2958` to `2.7354`. Validation loss reaches its best value of approximately `2.8849` at epoch 74 and finishes at approximately `2.9271` at epoch 100, suggesting mild overfitting after the best validation point.
+```text
+Character embeddings:          27 × 8  = 216
+Positional embeddings:          4 × 8  = 32
+Query projection:               8 × 16 = 128
+Key projection:                 8 × 16 = 128
+Value projection:               8 × 16 = 128
+Attention output projection:   16 × 8  = 128
+LayerNorm 1 scale + shift:      8 + 8  = 16
+Feed-forward input:             8 × 16 = 128
+Feed-forward output:           16 × 8  = 128
+LayerNorm 2 scale + shift:      8 + 8  = 16
+Output weights:                 8 × 27 = 216
+-------------------------------------------
+Total:                                  1264
+```
 
-The first versions are language models, but they are not yet large language models. The LLM label becomes appropriate later in the project, after the introduction of subword tokenization, a decoder-only Transformer, a meaningful parameter count and training on a substantial corpus.
+The dataset contains 436 sequential context-target examples, divided reproducibly into 348 training examples and 88 validation examples.
+
+Training runs for 100 epochs using mini-batches of 32 examples and a learning rate of `1.0`.
+
+The saved execution produces:
+
+```text
+Initial training loss:   3.298020
+Final training loss:     1.915883
+Initial validation loss: 3.299714
+Final validation loss:   2.208963
+Best validation loss:    2.130791
+Best validation epoch:   67
+```
+
+Training loss decreases substantially. Validation loss improves during the first part of training, reaches its minimum at epoch 67 and then fluctuates while training continues to improve, which is consistent with mild overfitting on the very small dataset.
+
+The first versions are language models, but they are not yet large language models. Version 9 introduces the internal structure of a real Transformer block, while later versions will move toward a more complete decoder-only architecture, subword tokenization, larger datasets and a more meaningful parameter count.
+
 ## Current architecture
 
 ```text
 English Training Text
-         ↓
+        ↓
 4-Character Context Windows
-         ↓
+        +
+4 Sequential Next-Character Targets
+        ↓
 Numerical Character IDs
-         ↓
+        ↓
 Train / Validation Split
-         ↓
+        ↓
 Training Data Shuffle
-         ↓
+        ↓
 Mini-Batches
-         ↓
+        ↓
 Trainable Character Embedding Matrix (27, 8)
-         +
+        +
 Trainable Positional Embedding Matrix (4, 8)
-         ↓
+        ↓
 Positioned Context Representations (4 × 8)
-         ↓
+        ↓
 Query / Key / Value Projections (4 × 16)
-         ↓
+        ↓
 Scaled Dot-Product Scores QKᵀ / √dₖ
-         ↓
-Softmax Attention Weights (4 × 4)
-         ↓
+        ↓
+Causal Mask
+        ↓
+Masked Softmax Attention Weights (4 × 4)
+        ↓
 Weighted Value Combinations
-         ↓
-Contextual Representations (4 × 16)
-         ↓
-Final Contextual Representation (16 values)
-         ↓
-Trainable Output Weight Matrix (16, 27)
-         ↓
-Logits and Softmax Probabilities
-         ↓
-Cross-Entropy Loss
-         ↓
+        ↓
+Attention Output (4 × 16)
+        ↓
+Attention Output Projection (16 → 8)
+        ↓
+Residual Connection
+        ↓
+LayerNorm
+        ↓
+Position-Wise Feed-Forward Network (8 → 16 → 8)
+        ↓
+Residual Connection
+        ↓
+LayerNorm
+        ↓
+Transformer Output (4 × 8)
+        ↓
+Trainable Output Weight Matrix (8, 27)
+        ↓
+Vocabulary Logits at All 4 Positions
+        ↓
+Cross-Entropy Loss over All 4 Targets
+        ↓
 Automatic Gradients with tf.GradientTape
-         ↓
-Manual Gradient Descent
-         ↓
+        ↓
+Manual Mini-Batch Gradient Descent
+        ↓
 Training / Validation Monitoring
-         ↓
-Sliding-Window Next-Character Sampling
-         ↓
+        ↓
+Final-Position Logits during Generation
+        ↓
+Sliding-Window Autoregressive Sampling
+        ↓
 Generated Text
 ```
 
-The model still uses four previous characters as context. Version 8 removes recurrent processing and adds positional information explicitly. The positioned embeddings are projected into queries, keys and values, scaled dot-product attention lets the four context positions exchange information directly, and only the contextual representation of the final position is passed to the output projection for next-character prediction.
+Version 9 still uses a four-character context, but training now predicts the next character at every sequence position.
+
+For example:
+
+```text
+Input:  mode
+Target: odel
+```
+
+The four aligned predictions are:
+
+```text
+m    → o
+mo   → d
+mod  → e
+mode → l
+```
+
+The causal mask guarantees that each prediction can use only the current and previous positions, never future information.
+
+During generation, the entire Transformer block is evaluated for the current four-character window, but only the logits from the final sequence position are sampled.
+
 ## Version 1 - Character Statistical Model
 
 For every character in the corpus, the model counts which characters appeared immediately after it.
@@ -392,7 +468,7 @@ current embedding + previous hidden state
                     ↓
                    tanh
                     ↓
-             new hidden state
+              new hidden state
 ```
 
 The recurrent model uses the following trainable matrices:
@@ -557,10 +633,10 @@ For the four-character context, the model uses the following trainable matrices:
 ```text
 Character embedding matrix:  (27, 8)
 Positional embedding matrix:   (4, 8)
-Query projection:             (8, 16)
-Key projection:               (8, 16)
-Value projection:             (8, 16)
-Output weights:              (16, 27)
+Query projection:              (8, 16)
+Key projection:                (8, 16)
+Value projection:              (8, 16)
+Output weights:               (16, 27)
 ```
 
 The complete architecture therefore contains:
@@ -610,6 +686,196 @@ Open the folder:
 
 [`v08-attention`](v08-attention/)
 
+## Version 9 - Transformer Block
+
+Version 9 transforms the explicit attention mechanism from Version 8 into a complete single causal Transformer block.
+
+The four-character context and trainable character and positional embeddings are preserved, but the training objective changes from one next-character target per context to four aligned sequential targets.
+
+For example:
+
+```text
+Input:  mode
+Target: odel
+```
+
+The positioned context is projected into queries, keys and values:
+
+```text
+Q = X Wq
+K = X Wk
+V = X Wv
+```
+
+Scaled dot-product scores are calculated:
+
+```text
+scores = Q Kᵀ / √dk
+```
+
+A causal mask prevents every sequence position from seeing future positions:
+
+```text
+1 0 0 0
+1 1 0 0
+1 1 1 0
+1 1 1 1
+```
+
+The masked scores are normalized with softmax:
+
+```text
+attention = softmax(masked_scores)
+```
+
+The attention weights combine the value vectors:
+
+```text
+H = attention V
+```
+
+The attention output is projected from 16 dimensions back to the 8-dimensional model representation:
+
+```text
+16 → 8
+```
+
+The first Transformer sublayer then applies:
+
+```text
+positioned input
+       +
+attention output
+       ↓
+Residual
+       ↓
+LayerNorm
+```
+
+A position-wise feed-forward network follows:
+
+```text
+8 → 16 → 8
+```
+
+The feed-forward output is combined with another residual connection and LayerNorm:
+
+```text
+normalized attention representation
+                +
+       feed-forward output
+                ↓
+             Residual
+                ↓
+             LayerNorm
+```
+
+Vocabulary logits are produced independently at all four sequence positions:
+
+```text
+Transformer output: (batch, 4, 8)
+        ↓
+Output weights:     (8, 27)
+        ↓
+Logits:             (batch, 4, 27)
+```
+
+Cross-entropy loss is calculated over all four aligned next-character targets.
+
+The complete model contains 13 trainable TensorFlow variables and exactly:
+
+```text
+1264 trainable parameters
+```
+
+The dataset contains:
+
+```text
+Total examples:      436
+Training examples:   348
+Validation examples: 88
+Batch size:           32
+Updates per epoch:    11
+```
+
+The training configuration is:
+
+```text
+Learning rate: 1.0
+Batch size:    32
+Epochs:        100
+Seed:          42
+```
+
+The saved training execution produces:
+
+```text
+Initial training loss:   3.298020
+Final training loss:     1.915883
+Initial validation loss: 3.299714
+Final validation loss:   2.208963
+Best validation loss:    2.130791
+Best validation epoch:   67
+```
+
+For the context `mode`, the saved final-position probabilities begin with:
+
+```text
+space  0.3648
+r      0.1843
+d      0.0762
+l      0.0639
+t      0.0583
+m      0.0465
+```
+
+The saved causal attention matrix for `mode` is:
+
+```text
+       m       o       d       e
+
+m   1.0000  0.0000  0.0000  0.0000
+o   0.9234  0.0766  0.0000  0.0000
+d   0.2832  0.3961  0.3207  0.0000
+e   0.1037  0.4917  0.2196  0.1849
+```
+
+Every row sums to approximately 1 and every value above the main diagonal is zero, confirming that future information is blocked.
+
+Generation remains autoregressive. At every step the entire Transformer block is recomputed for the current four-character context, but only the logits from the final position are used to sample the next character.
+
+The saved generated text begins:
+
+```text
+moderetr win mawiom n.
+sinttl macors mod manes lexper fconged clerning lamamp belers,
+th comakerincte crsmay rin tleleaserks pamake codvame win mexpl...
+```
+
+Version 9 is the first stage of the project with the main internal structure of a Transformer block:
+
+```text
+embeddings + positions
+        ↓
+Q / K / V
+        ↓
+causal self-attention
+        ↓
+output projection
+        ↓
+residual + LayerNorm
+        ↓
+feed-forward network
+        ↓
+residual + LayerNorm
+        ↓
+vocabulary logits
+```
+
+Open the folder:
+
+[`v09-transformer-block`](v09-transformer-block/)
+
 ## Project versions
 
 | Version | Main concept | Status |
@@ -622,7 +888,7 @@ Open the folder:
 | Version 6 | Recurrent language model | Completed |
 | Version 7 | GRU language model | Completed |
 | Version 8 | Attention | Completed |
-| Version 9 | Transformer block | Planned |
+| Version 9 | Transformer block | Completed |
 | Version 10 | Mini decoder-only language model | Planned |
 | Version 11 | Subword tokenizer and public datasets | Planned |
 | Version 12 | Kaggle training pipeline | Planned |
@@ -632,32 +898,49 @@ Open the folder:
 
 ## Included checks
 
-The Version 8 notebook verifies:
+The Version 9 notebook verifies:
 
-- the correct number of four-character context-target examples;
-- the numerical input and target representations;
-- the construction of the first sliding context windows directly from the corpus;
-- that the inputs are TensorFlow tensors;
-- that all six trainable parameter matrices are TensorFlow variables;
-- the shapes of the input tensor, character embedding matrix, positional embedding matrix, query, key and value projection matrices, attention output and logits;
-- that the model contains exactly 1064 trainable parameters;
-- that the attention matrix has shape `4 × 4` for each example;
-- that attention weights remain finite and between 0 and 1;
-- that every row of attention weights sums to 1;
-- that the training and validation sets together cover all examples;
+- that the corpus and vocabulary contain the expected number of characters;
+- that the dataset contains exactly 436 sequential context-target examples;
+- that the input and target tensors both have shape `(436, 4)`;
+- that the first sequential context-target windows are constructed correctly from the corpus;
+- that training and validation indices together cover all examples;
 - that training and validation indices do not overlap;
-- that training and validation loss histories contain the expected number of measurements;
-- that the final training and validation losses are lower than their initial values;
-- that the recorded training and validation losses remain finite;
-- that next-character probability distributions sum to 1;
-- that TensorFlow produces finite gradients for all six trainable parameter matrices;
-- that the gradient shapes match the corresponding variables;
-- that every trainable parameter matrix actually changes during training;
-- reproducible retraining from the same initial parameters and seed;
-- reproducible generation with the same seed;
-- the requested output length and starting context.
+- that the split contains 348 training examples and 88 validation examples;
+- that all model tensors have the expected TensorFlow types;
+- that all 13 trainable variables have the expected shapes;
+- that the complete model contains exactly 1264 trainable parameters;
+- that character embeddings have shape `(1, 4, 8)` for one example;
+- that query, key and value tensors have shape `(1, 4, 16)`;
+- that the causal attention matrix has shape `(1, 4, 4)`;
+- that the Transformer output has shape `(1, 4, 8)`;
+- that vocabulary logits have shape `(1, 4, 27)`;
+- that the causal mask is lower triangular;
+- that attention weights assigned to future positions are zero;
+- that attention values remain finite;
+- that every attention row sums to approximately 1;
+- that next-character probability distributions sum to approximately 1;
+- that sparse cross-entropy loss is calculated over all four sequence positions;
+- that the training and validation loss histories contain the expected values;
+- that all recorded losses remain finite;
+- that final training loss is lower than initial training loss;
+- that all gradients are present;
+- that all gradients remain finite;
+- that gradient shapes match their corresponding trainable variables;
+- that every trainable variable changes during training;
+- that retraining from the same initialization and seed is reproducible;
+- that autoregressive generation is reproducible with the same seed;
+- that generated text preserves the requested starting context;
+- that generated text has the requested length.
+
+The final notebook test section finishes with:
+
+```text
+All checks passed.
+```
 
 The notebook can be executed from top to bottom without a GPU. NumPy and TensorFlow are the external computational dependencies.
+
 ## Documentation
 
 The repository includes a complete general project report in Italian and English:
@@ -722,12 +1005,18 @@ building-llm/
 │   ├── Report Version 7 - GRU Language Model.pdf
 │   └── Version 7.png
 │
-│
 ├── v08-attention/
 │   ├── building-llm.ipynb
 │   ├── Relazione Versione 8 - Attention.pdf
 │   ├── Report Version 8 - Attention.pdf
 │   └── Version 8.png
+│
+├── v09-transformer-block/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 9 - Transformer Block.pdf
+│   ├── Report Version 9 - Transformer Block.pdf
+│   └── Version 9.png
+│
 ├── infographic.png
 ├── project-report-en.pdf
 ├── project-report-it.pdf
@@ -745,7 +1034,13 @@ building-llm/
 - TensorFlow
 - Jupyter Notebook or JupyterLab
 
-Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. Versions 4, 5, 6, 7 and 8 use NumPy for reproducible data handling and sampling, while TensorFlow performs the model calculations, trainable parameter updates and automatic differentiation. No GPU is required.
+Version 1 uses only Python's standard library.
+
+Versions 2 and 3 use NumPy for numerical representation and model training.
+
+Versions 4, 5, 6, 7, 8 and 9 use NumPy for reproducible data handling and sampling, while TensorFlow performs model calculations, trainable parameter updates and automatic differentiation.
+
+No GPU is required.
 
 Clone the repository:
 
@@ -763,7 +1058,7 @@ jupyter notebook
 Then open:
 
 ```text
-v08-attention/building-llm.ipynb
+v09-transformer-block/building-llm.ipynb
 ```
 
 Run the cells in order.
@@ -778,6 +1073,10 @@ Instead of starting with a complex Transformer, the project introduces each mech
 
 Each new version continues the same educational journey while preserving the completed stages as reference implementations.
 
+Version 9 intentionally keeps the Transformer implementation explicit rather than immediately hiding its components inside high-level classes. This makes the causal attention, residual connections, normalization and feed-forward computations directly inspectable.
+
+As the architecture grows in later versions, these components can be progressively organized into reusable classes or modules without removing the mathematical structure already introduced.
+
 ## Roadmap
 
 - [x] Character statistical language model
@@ -788,7 +1087,7 @@ Each new version continues the same educational journey while preserving the com
 - [x] Recurrent neural networks
 - [x] GRU
 - [x] Scaled dot-product attention
-- [ ] Transformer block
+- [x] Transformer block
 - [ ] Decoder-only Transformer
 - [ ] Subword tokenization and public datasets
 - [ ] Kaggle training pipeline and checkpoints
@@ -798,27 +1097,34 @@ Each new version continues the same educational journey while preserving the com
 
 ## Current limitations
 
-Version 8 is intentionally simple:
+Version 9 is intentionally small and explicit:
 
 - the context still has a fixed length of four characters;
-- the training corpus is small and embedded directly in the notebook;
-- neighboring context windows overlap and the random example-level split can place similar windows in both training and validation;
-- the model uses one explicit scaled dot-product attention computation;
-- only the contextual representation of the final position contributes directly to next-character prediction loss;
-- the model intentionally does not use bias terms;
-- causal masking is not used yet because the target character remains outside the input context;
-- residual connections are not used yet;
-- normalization is not used yet;
-- a feed-forward network is not used yet;
-- multi-head attention is not used yet;
+- the training corpus contains only 440 characters and is embedded directly in the notebook;
+- the vocabulary contains only 27 characters;
+- neighboring sliding windows overlap heavily;
+- the random example-level training/validation split can therefore place highly related windows in both sets;
+- validation loss is useful as a learning monitor but is not a robust estimate of generalization to unseen text;
+- the model contains only one Transformer block;
+- the model uses a single attention mechanism rather than multi-head attention;
+- the embedding dimension remains only 8;
+- the attention dimension is only 16;
+- the feed-forward hidden dimension is only 16;
+- dropout is not used;
+- attention, feed-forward and output projections intentionally do not use bias terms;
 - training uses plain mini-batch gradient descent with a fixed learning rate;
-- validation loss is monitored, but early stopping is not implemented;
-- the best model parameters are not automatically restored;
-- generation uses the final epoch-100 parameters even though validation loss is best at epoch 74;
-- validation is not a robust estimate of generalization to a different corpus;
-- generated text captures local character patterns but still has no long-term coherence.
+- no learning-rate schedule is used;
+- early stopping is not implemented;
+- the best validation checkpoint is not automatically restored;
+- generation therefore uses the final epoch-100 parameters rather than the parameters from the best validation epoch;
+- the entire Transformer block is recomputed for every four-character generation step;
+- the implementation deliberately passes the trainable variables explicitly, which is useful for learning but is becoming verbose;
+- later versions can organize the Transformer components into classes or reusable modules;
+- generated text captures local character patterns but still has limited long-range coherence;
+- the model is still a small educational character-level language model rather than a practical large language model.
 
-These limitations define the current stage of the project and prepare the transition to a Transformer block in Version 9.
+These limitations define the current stage of the project and prepare the transition from one explicit Transformer block to a more complete decoder-only language model in Version 10.
+
 ## License
 
 This project is distributed under the [MIT License](LICENSE).
