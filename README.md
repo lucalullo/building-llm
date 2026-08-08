@@ -24,73 +24,82 @@ Each stage introduces the concepts required by the next one while keeping the im
 
 ## Current version
 
-Version 7 extends the TensorFlow recurrent neural character language model from Version 6 with a gated recurrent unit (GRU).
+Version 8 replaces the gated recurrent processing from Version 7 with explicit scaled dot-product attention.
 
-It continues directly from Version 6:
+It continues directly from Version 7:
 
 - the same 440-character English training corpus is used;
 - the same 27-character vocabulary is preserved;
 - each training example still uses four previous characters to predict the next character;
 - each character identifier still selects an 8-dimensional trainable embedding vector;
-- the four embeddings are still processed sequentially from left to right;
-- a 16-dimensional recurrent hidden state carries information from one context position to the next;
-- the simple recurrent `tanh` update is replaced by an update gate, a reset gate and a candidate hidden state;
-- the same GRU weights are reused at every position in the context;
-- `tf.GradientTape` calculates gradients for all eight trainable parameter matrices;
+- recurrent processing is removed;
+- a trainable positional embedding is added at each of the four context positions so that sequence order remains explicit;
+- the positioned embeddings are projected into query, key and value representations;
+- queries and keys are compared with scaled dot products;
+- softmax converts the scaled scores into normalized attention weights;
+- the attention weights combine the value vectors into contextual representations;
+- only the contextual representation of the final position is used for next-character prediction;
+- `tf.GradientTape` calculates gradients for all six trainable parameter matrices;
 - the parameters are updated manually with gradient descent;
 - training and validation loss are monitored separately;
 - text generation remains autoregressive and uses a sliding four-character context window.
 
-The model contains 1800 trainable parameters: 216 values in the embedding matrix, 128 and 256 values in the update-gate input and recurrent matrices, 128 and 256 in the reset-gate matrices, 128 and 256 in the candidate-state matrices, and 432 in the output matrix. The dataset still contains 436 context-target examples, divided into 348 training examples and 88 validation examples.
+The model contains 1064 trainable parameters: 216 values in the character embedding matrix, 32 in the positional embedding matrix, 128 values in each of the query, key and value projection matrices, and 432 in the output matrix. The dataset still contains 436 context-target examples, divided into 348 training examples and 88 validation examples.
 
-Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2958` to `2.6596`. Validation loss reaches its best value of approximately `2.8995` at epoch 99 and finishes at approximately `2.9139` at epoch 100, suggesting the beginning of mild overfitting.
+Training runs for 100 epochs using mini-batches of 32 examples. The training loss decreases from approximately `3.2958` to `2.7354`. Validation loss reaches its best value of approximately `2.8849` at epoch 74 and finishes at approximately `2.9271` at epoch 100, suggesting mild overfitting after the best validation point.
 
 The first versions are language models, but they are not yet large language models. The LLM label becomes appropriate later in the project, after the introduction of subword tokenization, a decoder-only Transformer, a meaningful parameter count and training on a substantial corpus.
-
 ## Current architecture
 
 ```text
 English Training Text
-          ↓
+         ↓
 4-Character Context Windows
-          ↓
+         ↓
 Numerical Character IDs
-          ↓
+         ↓
 Train / Validation Split
-          ↓
+         ↓
 Training Data Shuffle
-          ↓
+         ↓
 Mini-Batches
-          ↓
-Trainable Embedding Matrix (27, 8)
-          ↓
-Ordered Embedding Sequence
-          ↓
-Sequential GRU Processing
-          ↓
-Update Gate + Reset Gate + Candidate Hidden State
-          ↓
-Final Hidden State (16 values)
-          ↓
+         ↓
+Trainable Character Embedding Matrix (27, 8)
+         +
+Trainable Positional Embedding Matrix (4, 8)
+         ↓
+Positioned Context Representations (4 × 8)
+         ↓
+Query / Key / Value Projections (4 × 16)
+         ↓
+Scaled Dot-Product Scores QKᵀ / √dₖ
+         ↓
+Softmax Attention Weights (4 × 4)
+         ↓
+Weighted Value Combinations
+         ↓
+Contextual Representations (4 × 16)
+         ↓
+Final Contextual Representation (16 values)
+         ↓
 Trainable Output Weight Matrix (16, 27)
-          ↓
+         ↓
 Logits and Softmax Probabilities
-          ↓
+         ↓
 Cross-Entropy Loss
-          ↓
+         ↓
 Automatic Gradients with tf.GradientTape
-          ↓
+         ↓
 Manual Gradient Descent
-          ↓
+         ↓
 Training / Validation Monitoring
-          ↓
+         ↓
 Sliding-Window Next-Character Sampling
-          ↓
+         ↓
 Generated Text
 ```
 
-The model still uses four previous characters as context. Version 7 processes their embeddings from left to right with a shared GRU transformation. The update gate controls how much of the previous hidden state is preserved, the reset gate controls how previous information contributes to the candidate state, and the final hidden state summarizes the ordered context before the output projection.
-
+The model still uses four previous characters as context. Version 8 removes recurrent processing and adds positional information explicitly. The positioned embeddings are projected into queries, keys and values, scaled dot-product attention lets the four context positions exchange information directly, and only the contextual representation of the final position is passed to the output projection for next-character prediction.
 ## Version 1 - Character Statistical Model
 
 For every character in the corpus, the model counts which characters appeared immediately after it.
@@ -511,6 +520,96 @@ Open the folder:
 
 [`v07-gru-language-model`](v07-gru-language-model/)
 
+## Version 8 - Attention
+
+Version 8 replaces the gated recurrent processing from Version 7 with explicit scaled dot-product attention.
+
+The same four-character context windows and trainable character embeddings are preserved, but recurrence is removed. Because the recurrent model previously represented sequence order implicitly, Version 8 adds trainable positional embeddings to the four context positions.
+
+The positioned context is projected into queries, keys and values:
+
+```text
+Q = X Wq
+K = X Wk
+V = X Wv
+```
+
+Queries and keys produce scaled attention scores:
+
+```text
+scores = Q Kᵀ / √dk
+```
+
+Softmax converts the scores into normalized attention weights:
+
+```text
+attention = softmax(scores)
+```
+
+The attention weights combine the value vectors:
+
+```text
+H = attention V
+```
+
+For the four-character context, the model uses the following trainable matrices:
+
+```text
+Character embedding matrix:  (27, 8)
+Positional embedding matrix:   (4, 8)
+Query projection:             (8, 16)
+Key projection:               (8, 16)
+Value projection:             (8, 16)
+Output weights:              (16, 27)
+```
+
+The complete architecture therefore contains:
+
+```text
+27 × 8
++ 4 × 8
++ 3 × (8 × 16)
++ 16 × 27
+= 1064 trainable parameters
+```
+
+The dataset remains unchanged from Version 7:
+
+```text
+Training examples:   348
+Validation examples: 88
+```
+
+The training configuration remains intentionally simple:
+
+```text
+Learning rate: 1.0
+Batch size:    32
+Epochs:        100
+Seed:          42
+```
+
+After training:
+
+```text
+Initial training loss:   3.2958
+Final training loss:     2.7354
+Initial validation loss: 3.2958
+Final validation loss:   2.9271
+Best validation loss:    2.8849
+Best validation epoch:   74
+```
+
+The model changes very little during the first part of training, then the loss decreases more clearly. Validation loss reaches its minimum at epoch 74. After that point, training loss continues to decrease while validation loss increases slightly, suggesting mild overfitting.
+
+Attention produces a `4 × 4` matrix for each example. The rows are normalized by softmax and each row sums to 1. For next-character prediction, only the contextual representation of the final position is passed to the output layer.
+
+Generation remains autoregressive with a sliding four-character context window. For every new window, character embeddings and positional embeddings are combined, attention is recomputed, and the final contextual representation produces the next-character probabilities.
+
+Open the folder:
+
+[`v08-attention`](v08-attention/)
+
 ## Project versions
 
 | Version | Main concept | Status |
@@ -522,7 +621,7 @@ Open the folder:
 | Version 5 | Embeddings and context window | Completed |
 | Version 6 | Recurrent language model | Completed |
 | Version 7 | GRU language model | Completed |
-| Version 8 | Attention | Planned |
+| Version 8 | Attention | Completed |
 | Version 9 | Transformer block | Planned |
 | Version 10 | Mini decoder-only language model | Planned |
 | Version 11 | Subword tokenizer and public datasets | Planned |
@@ -533,25 +632,25 @@ Open the folder:
 
 ## Included checks
 
-The Version 7 notebook verifies:
+The Version 8 notebook verifies:
 
 - the correct number of four-character context-target examples;
 - the numerical input and target representations;
 - the construction of the first sliding context windows directly from the corpus;
 - that the inputs are TensorFlow tensors;
-- that all eight trainable parameter matrices are TensorFlow variables;
-- the shapes of the input tensor, embedding matrix, GRU parameter matrices, hidden state and logits;
-- that the model contains exactly 1800 trainable parameters;
-- that update and reset gate values remain between 0 and 1;
-- that candidate hidden-state values remain between -1 and 1;
-- that recurrent hidden states remain finite and between -1 and 1;
+- that all six trainable parameter matrices are TensorFlow variables;
+- the shapes of the input tensor, character embedding matrix, positional embedding matrix, query, key and value projection matrices, attention output and logits;
+- that the model contains exactly 1064 trainable parameters;
+- that the attention matrix has shape `4 × 4` for each example;
+- that attention weights remain finite and between 0 and 1;
+- that every row of attention weights sums to 1;
 - that the training and validation sets together cover all examples;
 - that training and validation indices do not overlap;
 - that training and validation loss histories contain the expected number of measurements;
-- that the final training loss is lower than the initial training loss;
+- that the final training and validation losses are lower than their initial values;
 - that the recorded training and validation losses remain finite;
-- that the probability distributions sum to 1;
-- that TensorFlow produces finite gradients for all eight trainable parameter matrices;
+- that next-character probability distributions sum to 1;
+- that TensorFlow produces finite gradients for all six trainable parameter matrices;
 - that the gradient shapes match the corresponding variables;
 - that every trainable parameter matrix actually changes during training;
 - reproducible retraining from the same initial parameters and seed;
@@ -559,7 +658,6 @@ The Version 7 notebook verifies:
 - the requested output length and starting context.
 
 The notebook can be executed from top to bottom without a GPU. NumPy and TensorFlow are the external computational dependencies.
-
 ## Documentation
 
 The repository includes a complete general project report in Italian and English:
@@ -624,6 +722,12 @@ building-llm/
 │   ├── Report Version 7 - GRU Language Model.pdf
 │   └── Version 7.png
 │
+│
+├── v08-attention/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 8 - Attention.pdf
+│   ├── Report Version 8 - Attention.pdf
+│   └── Version 8.png
 ├── infographic.png
 ├── project-report-en.pdf
 ├── project-report-it.pdf
@@ -641,7 +745,7 @@ building-llm/
 - TensorFlow
 - Jupyter Notebook or JupyterLab
 
-Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. Versions 4, 5, 6 and 7 use NumPy for reproducible data handling and sampling, while TensorFlow performs the model calculations, trainable parameter updates and automatic differentiation. No GPU is required.
+Version 1 uses only Python's standard library. Versions 2 and 3 use NumPy for numerical representation and model training. Versions 4, 5, 6, 7 and 8 use NumPy for reproducible data handling and sampling, while TensorFlow performs the model calculations, trainable parameter updates and automatic differentiation. No GPU is required.
 
 Clone the repository:
 
@@ -659,7 +763,7 @@ jupyter notebook
 Then open:
 
 ```text
-v07-gru-language-model/building-llm.ipynb
+v08-attention/building-llm.ipynb
 ```
 
 Run the cells in order.
@@ -683,7 +787,7 @@ Each new version continues the same educational journey while preserving the com
 - [x] Embeddings and larger context windows
 - [x] Recurrent neural networks
 - [x] GRU
-- [ ] Scaled dot-product attention
+- [x] Scaled dot-product attention
 - [ ] Transformer block
 - [ ] Decoder-only Transformer
 - [ ] Subword tokenization and public datasets
@@ -694,23 +798,27 @@ Each new version continues the same educational journey while preserving the com
 
 ## Current limitations
 
-Version 7 is intentionally simple:
+Version 8 is intentionally simple:
 
 - the context still has a fixed length of four characters;
 - the training corpus is small and embedded directly in the notebook;
 - neighboring context windows overlap and the random example-level split can place similar windows in both training and validation;
-- the hidden state starts from zeros for every training example;
-- generation also recomputes each four-character window from a zero hidden state instead of preserving the recurrent state indefinitely;
-- the GRU uses update and reset gates but intentionally does not use bias terms;
+- the model uses one explicit scaled dot-product attention computation;
+- only the contextual representation of the final position contributes directly to next-character prediction loss;
+- the model intentionally does not use bias terms;
+- causal masking is not used yet because the target character remains outside the input context;
+- residual connections are not used yet;
+- normalization is not used yet;
+- a feed-forward network is not used yet;
+- multi-head attention is not used yet;
 - training uses plain mini-batch gradient descent with a fixed learning rate;
 - validation loss is monitored, but early stopping is not implemented;
 - the best model parameters are not automatically restored;
-- generation uses the final epoch-100 parameters even though validation loss is best at epoch 99;
+- generation uses the final epoch-100 parameters even though validation loss is best at epoch 74;
 - validation is not a robust estimate of generalization to a different corpus;
-- generated text captures local sequential patterns but still has no long-term coherence.
+- generated text captures local character patterns but still has no long-term coherence.
 
-These limitations define the current stage of the project and prepare the transition to attention mechanisms in Version 8.
-
+These limitations define the current stage of the project and prepare the transition to a Transformer block in Version 9.
 ## License
 
 This project is distributed under the [MIT License](LICENSE).
