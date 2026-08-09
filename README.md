@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Jupyter Notebook](https://img.shields.io/badge/Jupyter-Notebook-F37626?logo=jupyter&logoColor=white)
 
-A progressive educational project that shows how language models are built step by step, from a simple character-level statistical model to a small decoder-only Transformer.
+A progressive educational project that shows how language models are built step by step, from a simple character-level statistical model to a small decoder-only Transformer using subword tokenization and a documented public dataset.
 
 The project begins with standard Python and introduces one new concept in each version. The goal is not to compete with industrial models, but to make tokenization, probability, training, neural networks, attention and autoregressive generation easier to understand.
 
@@ -16,7 +16,7 @@ The complete project evolves through five main stages:
 2. neural foundations;
 3. sequence models;
 4. attention and Transformer architecture;
-5. a small decoder-only language model.
+5. a small decoder-only language model with subword tokenization and public data.
 
 Each stage introduces the concepts required by the next one while keeping the implementation understandable and verifiable.
 
@@ -24,122 +24,169 @@ Each stage introduces the concepts required by the next one while keeping the im
 
 ## Current version
 
-Version 9 extends the explicit scaled dot-product attention introduced in Version 8 into a complete single causal Transformer block.
+Version 11 keeps the small decoder-only Transformer introduced in Version 10 and changes how language enters the model.
 
-It continues directly from Version 8:
+It continues directly from Version 10:
 
-- the same 440-character English training corpus is used;
-- the same 27-character vocabulary is preserved;
-- each training example still begins with a four-character context;
-- each input context now has four aligned next-character targets;
-- each character identifier selects an 8-dimensional trainable embedding vector;
-- trainable positional embeddings preserve sequence order;
-- the positioned embeddings are projected into query, key and value representations;
-- scaled dot-product self-attention compares all positions;
-- a causal mask prevents every position from attending to future positions;
-- the attention output is projected back from 16 to 8 dimensions;
-- a residual connection and LayerNorm follow the attention sublayer;
-- a position-wise feed-forward network expands the representation from 8 to 16 dimensions and projects it back to 8;
-- a second residual connection and LayerNorm complete the Transformer block;
-- vocabulary logits are produced at every context position during training;
-- cross-entropy loss is calculated over all four sequential targets;
-- `tf.GradientTape` calculates gradients for all 13 trainable TensorFlow variables;
-- the parameters are updated manually with mini-batch gradient descent;
-- training and validation loss are monitored separately;
-- autoregressive generation uses only the logits from the final sequence position;
-- generation continues with a sliding four-character context window.
+- the two reusable causal Transformer blocks are preserved;
+- residual connections, LayerNorm operations and position-wise feed-forward networks remain unchanged;
+- the tiny hardcoded 440-character corpus is replaced by the public **WikiText-103 Raw v1** dataset;
+- the original training, validation and test split boundaries are preserved;
+- controlled subsets are sampled independently from the three official splits;
+- character-level tokenization is replaced by **Byte Pair Encoding (BPE)**;
+- the BPE tokenizer is trained only on the selected training subset;
+- the tokenizer uses a vocabulary of 2048 tokens, including the special `[UNK]` token;
+- each WikiText row is tokenized independently;
+- fixed-length windows contain 17 BPE tokens;
+- the first 16 tokens form the model input and the same sequence shifted by one token forms the 16-token target;
+- a stride of 16 limits overlap and incomplete final windows are discarded;
+- token embeddings replace character embeddings;
+- trainable positional embeddings now represent 16 sequence positions;
+- both Transformer blocks preserve an 8-dimensional model representation;
+- vocabulary logits are produced at all 16 sequence positions;
+- sparse softmax cross-entropy is calculated over all sequential targets;
+- `tf.GradientTape` calculates gradients for all 23 trainable TensorFlow variables;
+- sparse embedding gradients are updated with `scatter_sub`, while dense gradients use `assign_sub`;
+- training, validation and test losses are evaluated separately;
+- next-token probabilities are inspected on unseen test data;
+- generation uses deterministic greedy decoding with a sliding 16-token BPE context;
+- causal attention is inspected independently in both Transformer blocks.
 
-The model contains exactly 1264 trainable parameters:
+The original WikiText-103 Raw v1 split sizes are:
 
 ```text
-Character embeddings:          27 × 8  = 216
-Positional embeddings:          4 × 8  = 32
-Query projection:               8 × 16 = 128
-Key projection:                 8 × 16 = 128
-Value projection:               8 × 16 = 128
-Attention output projection:   16 × 8  = 128
-LayerNorm 1 scale + shift:      8 + 8  = 16
-Feed-forward input:             8 × 16 = 128
-Feed-forward output:           16 × 8  = 128
-LayerNorm 2 scale + shift:      8 + 8  = 16
-Output weights:                 8 × 27 = 216
--------------------------------------------
-Total:                                  1264
+Training rows:   1,801,350
+Validation rows:     3,760
+Test rows:           4,358
 ```
 
-The dataset contains 436 sequential context-target examples, divided reproducibly into 348 training examples and 88 validation examples.
+Version 11 uses controlled subsets:
 
-Training runs for 100 epochs using mini-batches of 32 examples and a learning rate of `1.0`.
+```text
+Selected training rows:   10,000
+Selected validation rows:  1,000
+Selected test rows:        1,000
+
+Used training sequences:   12,000
+Used validation sequences:  2,000
+Used test sequences:        2,000
+```
+
+The tokenizer vocabulary and model configuration are:
+
+```text
+Vocabulary size:     2048
+Context length:        16
+Embedding dimension:    8
+Attention dimension:   16
+Feed-forward dimension: 16
+Transformer blocks:     2
+```
+
+The model contains exactly 34,496 trainable parameters:
+
+```text
+Token embeddings:              2048 × 8  = 16,384
+Positional embeddings:           16 × 8  =    128
+Transformer block 1:                         800
+Transformer block 2:                         800
+Output weights:                   8 × 2048 = 16,384
+--------------------------------------------------
+Total:                                     34,496
+```
+
+Training uses:
+
+```text
+Learning rate: 1.0
+Batch size:    32
+Epochs:        20
+Seed:          42
+```
 
 The saved execution produces:
 
 ```text
-Initial training loss:   3.298020
-Final training loss:     1.915883
-Initial validation loss: 3.299714
-Final validation loss:   2.208963
-Best validation loss:    2.130791
-Best validation epoch:   67
+Initial training loss:   7.626767
+Final training loss:     4.987922
+Initial validation loss: 7.626187
+Final validation loss:   5.085637
+Test loss:               5.117153
+Uniform baseline:        7.624619
 ```
 
-Training loss decreases substantially. Validation loss improves during the first part of training, reaches its minimum at epoch 67 and then fluctuates while training continues to improve, which is consistent with mild overfitting on the very small dataset.
+These values describe the saved execution. Small numerical differences may appear across TensorFlow environments.
 
-The first versions are language models, but they are not yet large language models. Version 9 introduces the internal structure of a real Transformer block, while later versions will move toward a more complete decoder-only architecture, subword tokenization, larger datasets and a more meaningful parameter count.
+Version 11 completes the transition from a tiny character-level educational model to a small decoder-only Transformer that operates on learned subword tokens from a documented public dataset. The Transformer core remains intentionally small and inspectable so the effect of the new data representation can be studied directly.
 
 ## Current architecture
 
 ```text
-English Training Text
+WikiText-103 Raw v1
         ↓
-4-Character Context Windows
+Original Train / Validation / Test Splits
+        ↓
+Remove Empty Text Rows
+        ↓
+Independent Seed-Controlled Subsets
+        ↓
+BPE Tokenizer
+(trained only on selected training text)
+        ↓
+2048-Token Vocabulary
+        ↓
+Each Text Row Tokenized Independently
+        ↓
+17-Token Fixed-Length Windows
+        ↓
+Input:  16 BPE Tokens
+Target: Same Window Shifted by 1 Token
+        ↓
+Stride = 16
+        ↓
+Capped Train / Validation / Test Sequences
+        ↓
+Trainable Token Embedding Matrix (2048, 8)
         +
-4 Sequential Next-Character Targets
+Trainable Positional Embedding Matrix (16, 8)
         ↓
-Numerical Character IDs
+Positioned Token Representations (16 × 8)
         ↓
-Train / Validation Split
+Transformer Block 1
         ↓
-Training Data Shuffle
+Query / Key / Value Projections (16 × 16)
         ↓
-Mini-Batches
-        ↓
-Trainable Character Embedding Matrix (27, 8)
-        +
-Trainable Positional Embedding Matrix (4, 8)
-        ↓
-Positioned Context Representations (4 × 8)
-        ↓
-Query / Key / Value Projections (4 × 16)
-        ↓
-Scaled Dot-Product Scores QKᵀ / √dₖ
-        ↓
-Causal Mask
-        ↓
-Masked Softmax Attention Weights (4 × 4)
-        ↓
-Weighted Value Combinations
-        ↓
-Attention Output (4 × 16)
+Causal Scaled Dot-Product Attention (16 × 16)
         ↓
 Attention Output Projection (16 → 8)
         ↓
-Residual Connection
-        ↓
-LayerNorm
+Residual + LayerNorm
         ↓
 Position-Wise Feed-Forward Network (8 → 16 → 8)
         ↓
-Residual Connection
+Residual + LayerNorm
         ↓
-LayerNorm
+Transformer Block 2
         ↓
-Transformer Output (4 × 8)
+Query / Key / Value Projections (16 × 16)
         ↓
-Trainable Output Weight Matrix (8, 27)
+Causal Scaled Dot-Product Attention (16 × 16)
         ↓
-Vocabulary Logits at All 4 Positions
+Attention Output Projection (16 → 8)
         ↓
-Cross-Entropy Loss over All 4 Targets
+Residual + LayerNorm
+        ↓
+Position-Wise Feed-Forward Network (8 → 16 → 8)
+        ↓
+Residual + LayerNorm
+        ↓
+Final Transformer Output (16 × 8)
+        ↓
+Trainable Output Weight Matrix (8, 2048)
+        ↓
+Vocabulary Logits at All 16 Positions
+        ↓
+Sparse Cross-Entropy Loss over All 16 Targets
         ↓
 Automatic Gradients with tf.GradientTape
         ↓
@@ -147,34 +194,16 @@ Manual Mini-Batch Gradient Descent
         ↓
 Training / Validation Monitoring
         ↓
-Final-Position Logits during Generation
+Final Test Evaluation
         ↓
-Sliding-Window Autoregressive Sampling
+Final-Position Next-Token Probabilities
+        ↓
+Sliding 16-Token Greedy Autoregressive Generation
         ↓
 Generated Text
 ```
 
-Version 9 still uses a four-character context, but training now predicts the next character at every sequence position.
-
-For example:
-
-```text
-Input:  mode
-Target: odel
-```
-
-The four aligned predictions are:
-
-```text
-m    → o
-mo   → d
-mod  → e
-mode → l
-```
-
-The causal mask guarantees that each prediction can use only the current and previous positions, never future information.
-
-During generation, the entire Transformer block is evaluated for the current four-character window, but only the logits from the final sequence position are sampled.
+The important architectural distinction from Version 10 is at the input and output boundaries: character identifiers and a 27-character vocabulary are replaced by BPE token identifiers and a 2048-token vocabulary. The internal two-block causal Transformer structure remains deliberately unchanged.
 
 ## Version 1 - Character Statistical Model
 
@@ -876,6 +905,274 @@ Open the folder:
 
 [`v09-transformer-block`](v09-transformer-block/)
 
+## Version 10 - Decoder-Only Transformer
+
+Version 10 turns the explicit single Transformer block from Version 9 into a small decoder-only Transformer composed of two reusable, independent Transformer blocks.
+
+The same 440-character English corpus, 27-character vocabulary, four-character context, sequential next-character targets and character-level training objective are preserved.
+
+The main change is architectural and organizational:
+
+- the Transformer operations are grouped into a reusable `TransformerBlock`;
+- two independent block instances are stacked sequentially;
+- the output of Transformer block 1 becomes the input of Transformer block 2;
+- both blocks preserve the `(batch, 4, 8)` representation shape;
+- each block has its own query, key, value, attention-output, LayerNorm and feed-forward parameters;
+- causal masking is applied independently inside both blocks;
+- model parameters are grouped instead of being passed individually through the training code;
+- the internal Transformer mathematics remains explicit and inspectable.
+
+The complete flow is:
+
+```text
+Characters
+    ↓
+Integer IDs
+    ↓
+4-Character Context + 4 Sequential Targets
+    ↓
+Character + Positional Embeddings
+    ↓
+Transformer Block 1
+    ↓
+Transformer Block 2
+    ↓
+Vocabulary Logits at All 4 Positions
+    ↓
+Cross-Entropy Loss
+    ↓
+Autoregressive Generation
+```
+
+The model contains 23 trainable TensorFlow variables and exactly:
+
+```text
+Character embeddings:           27 × 8  = 216
+Positional embeddings:           4 × 8  = 32
+Transformer block 1:                      800
+Transformer block 2:                      800
+Output weights:                  8 × 27 = 216
+---------------------------------------------
+Total:                                  2064
+```
+
+Each Transformer block contains exactly 800 parameters:
+
+```text
+Query projection:               8 × 16 = 128
+Key projection:                 8 × 16 = 128
+Value projection:               8 × 16 = 128
+Attention output projection:   16 × 8  = 128
+LayerNorm 1 scale + shift:      8 + 8   = 16
+Feed-forward input:             8 × 16 = 128
+Feed-forward output:           16 × 8  = 128
+LayerNorm 2 scale + shift:      8 + 8   = 16
+--------------------------------------------
+Per block:                               800
+```
+
+The dataset remains:
+
+```text
+Total examples:      436
+Training examples:   348
+Validation examples: 88
+Batch size:           32
+Updates per epoch:    11
+```
+
+The saved training execution produces:
+
+```text
+Initial training loss:   3.295300
+Final training loss:     1.844497
+Initial validation loss: 3.291214
+Final validation loss:   2.177593
+Best validation loss:    2.126416
+Best validation epoch:   98
+```
+
+For context `mode`, the saved final-position probabilities begin with:
+
+```text
+space  0.3901
+t      0.1992
+l      0.1369
+r      0.0717
+c      0.0697
+s      0.0373
+```
+
+Both blocks preserve the causal constraint. Every attention row sums to approximately 1 and every future-position weight is zero.
+
+Generation remains autoregressive with a sliding four-character window. At every step, the complete context passes through both Transformer blocks and only the final-position logits are sampled.
+
+Version 10 is the first project stage where the Transformer is organized as a reusable decoder-only stack rather than a single explicit block.
+
+Open the folder:
+
+[`v10-decoder-only-transformer`](v10-decoder-only-transformer/)
+
+## Version 11 - Subword Tokenization and Public Dataset
+
+Version 11 keeps the two-block decoder-only Transformer from Version 10 and changes the representation of language entering the model.
+
+The tiny hardcoded character corpus is replaced by **WikiText-103 Raw v1**, while character identifiers are replaced by BPE subword token identifiers.
+
+The original dataset split boundaries are preserved:
+
+```text
+Training rows:   1,801,350
+Validation rows:     3,760
+Test rows:           4,358
+```
+
+After removing empty rows, controlled subsets are sampled independently from each split:
+
+```text
+Training rows used:   10,000
+Validation rows used:  1,000
+Test rows used:        1,000
+```
+
+The BPE tokenizer:
+
+- is trained only on the selected training subset;
+- uses a maximum vocabulary size of 2048 tokens;
+- includes a special `[UNK]` token;
+- uses the `</w>` suffix to mark the end of a pre-tokenized word;
+- never uses validation or test text to build the vocabulary.
+
+Each WikiText row is tokenized independently.
+
+Token windows contain:
+
+```text
+CONTEXT_LENGTH + 1 = 17 tokens
+```
+
+The first 16 tokens form the input and the shifted 16-token sequence forms the target:
+
+```text
+Input:  [t0, t1, t2, ..., t15]
+Target: [t1, t2, t3, ..., t16]
+```
+
+A stride of 16 limits overlap, incomplete final windows are discarded, and examples never cross text-row boundaries.
+
+Before sequence caps, the saved preprocessing produces:
+
+```text
+Training windows:   96,893
+Validation windows:  9,764
+Test windows:        9,572
+```
+
+The model uses:
+
+```text
+Training sequences:   12,000
+Validation sequences:  2,000
+Test sequences:        2,000
+
+Vocabulary size:       2048
+Context length:          16
+Embedding dimension:      8
+Attention dimension:     16
+Feed-forward dimension:  16
+Transformer blocks:       2
+```
+
+The model contains 23 trainable TensorFlow variables and exactly:
+
+```text
+Token embeddings:              2048 × 8  = 16,384
+Positional embeddings:           16 × 8  =    128
+Transformer block 1:                         800
+Transformer block 2:                         800
+Output weights:                   8 × 2048 = 16,384
+--------------------------------------------------
+Total:                                     34,496
+```
+
+Training uses sparse softmax cross-entropy at all 16 sequence positions. `tf.GradientTape` calculates gradients for the 23 trainable variables. Sparse `IndexedSlices` gradients from token embedding lookups are updated with `scatter_sub`, while dense gradients use `assign_sub`.
+
+The training configuration is:
+
+```text
+Learning rate: 1.0
+Batch size:    32
+Epochs:        20
+Seed:          42
+```
+
+The saved execution produces:
+
+```text
+Initial training loss:   7.626767
+Final training loss:     4.987922
+Initial validation loss: 7.626187
+Final validation loss:   5.085637
+Test loss:               5.117153
+Uniform baseline:        7.624619
+```
+
+For the unseen test context:
+
+```text
+Little Gidding is the fourth and final poem
+```
+
+the highest saved final-position probabilities begin with:
+
+```text
+,      0.1392
+.      0.0825
+and    0.0471
+of     0.0453
+'      0.0336
+(      0.0253
+was    0.0252
+```
+
+The true next token is:
+
+```text
+of</w>
+```
+
+with probability `0.0453`.
+
+The first Transformer block has an almost uniform final-position attention distribution, with weights close to `0.0625`. The second block is more selective; its largest saved final-position weights include:
+
+```text
+G      0.2545
+L      0.1621
+f      0.0861
+the    0.0600
+```
+
+Every attention row sums to approximately 1 and future-position attention remains zero.
+
+Generation uses deterministic greedy decoding. Starting from:
+
+```text
+Little Gidding is the fourth and final poem
+```
+
+the saved 40-token demonstration produces:
+
+```text
+Little Gidding is the fourth and final poem , and the Sea , and the Sea , and the Sea
+, and the Sea , and the Sea , and the Sea , and the S
+```
+
+Version 11 completes the transition from character-level educational language modeling to a public-data subword pipeline while deliberately preserving the small two-block decoder-only Transformer architecture from Version 10.
+
+Open the folder:
+
+[`v11-subword-tokenization-public-dataset`](v11-subword-tokenization-public-dataset/)
+
 ## Project versions
 
 | Version | Main concept | Status |
@@ -889,49 +1186,39 @@ Open the folder:
 | Version 7 | GRU language model | Completed |
 | Version 8 | Attention | Completed |
 | Version 9 | Transformer block | Completed |
-| Version 10 | Mini decoder-only language model | Planned |
-| Version 11 | Subword tokenizer and public datasets | Planned |
-| Version 12 | Kaggle training pipeline | Planned |
+| Version 10 | Mini decoder-only language model | Completed |
+| Version 11 | Subword tokenization and public datasets | Completed |
+| Version 12 | Training pipeline and checkpoints | Planned |
 | Version 13 | Evaluation and controlled generation | Planned |
 | Version 14 | Instruction tuning | Planned |
 | Version 15 | Advanced small LLM | Planned |
 
 ## Included checks
 
-The Version 9 notebook verifies:
+The Version 11 notebook verifies:
 
-- that the corpus and vocabulary contain the expected number of characters;
-- that the dataset contains exactly 436 sequential context-target examples;
-- that the input and target tensors both have shape `(436, 4)`;
-- that the first sequential context-target windows are constructed correctly from the corpus;
-- that training and validation indices together cover all examples;
-- that training and validation indices do not overlap;
-- that the split contains 348 training examples and 88 validation examples;
-- that all model tensors have the expected TensorFlow types;
-- that all 13 trainable variables have the expected shapes;
-- that the complete model contains exactly 1264 trainable parameters;
-- that character embeddings have shape `(1, 4, 8)` for one example;
-- that query, key and value tensors have shape `(1, 4, 16)`;
-- that the causal attention matrix has shape `(1, 4, 4)`;
-- that the Transformer output has shape `(1, 4, 8)`;
-- that vocabulary logits have shape `(1, 4, 27)`;
-- that the causal mask is lower triangular;
-- that attention weights assigned to future positions are zero;
-- that attention values remain finite;
+- that the tokenizer vocabulary size is exactly 2048;
+- that training, validation and test input/target tensors use the configured 16-token sequence length and capped split sizes;
+- that token identifiers remain inside the tokenizer vocabulary;
+- that the first target sequence is the corresponding input shifted by one token;
+- that the model output has shape `(1, 16, 8)`;
+- that vocabulary logits have shape `(1, 16, 2048)`;
+- that the model contains exactly two independent Transformer block objects;
+- that the model contains exactly 23 trainable TensorFlow variables;
+- that the complete model contains exactly 34,496 trainable parameters;
+- that both attention matrices have shape `(16, 16)`;
 - that every attention row sums to approximately 1;
-- that next-character probability distributions sum to approximately 1;
-- that sparse cross-entropy loss is calculated over all four sequence positions;
-- that the training and validation loss histories contain the expected values;
-- that all recorded losses remain finite;
+- that every future-position attention weight is zero;
 - that final training loss is lower than initial training loss;
-- that all gradients are present;
-- that all gradients remain finite;
-- that gradient shapes match their corresponding trainable variables;
-- that every trainable variable changes during training;
-- that retraining from the same initialization and seed is reproducible;
-- that autoregressive generation is reproducible with the same seed;
-- that generated text preserves the requested starting context;
-- that generated text has the requested length.
+- that final validation loss is lower than initial validation loss;
+- that test loss remains below the uniform-vocabulary baseline;
+- that training and validation loss histories contain exactly 20 finite values;
+- that final training, validation and test losses are finite;
+- that the inspected next-token probability distribution is finite and sums to approximately 1;
+- that final training and validation losses remain below the uniform-vocabulary baseline;
+- that the two Transformer block instances are distinct objects;
+- that autoregressive generation extends the prompt;
+- that autoregressive generation adds exactly 40 new BPE tokens.
 
 The final notebook test section finishes with:
 
@@ -939,7 +1226,7 @@ The final notebook test section finishes with:
 All checks passed.
 ```
 
-The notebook can be executed from top to bottom without a GPU. NumPy and TensorFlow are the external computational dependencies.
+The notebook can be executed from top to bottom without a GPU. NumPy, Pandas, TensorFlow and the Hugging Face `tokenizers` library are the main external computational dependencies used by Version 11.
 
 ## Documentation
 
@@ -987,7 +1274,7 @@ building-llm/
 │   ├── Report Version 4 - Introduction to TensorFlow.pdf
 │   └── Version 4.png
 │
-├── v05-embeddings-context-window/
+├── v05-embeddings-context/
 │   ├── building-llm.ipynb
 │   ├── Relazione Versione 5 - Embedding e Finestra di contesto.pdf
 │   ├── Report Version 5 - Embeddings and Context Window.pdf
@@ -1017,6 +1304,18 @@ building-llm/
 │   ├── Report Version 9 - Transformer Block.pdf
 │   └── Version 9.png
 │
+├── v10-decoder-only-transformer/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 10 - Decoder Only Transformer.pdf
+│   ├── Report Version 10 - Decoder Only Transformer.pdf
+│   └── Version 10.png
+│
+├── v11-subword-tokenization-public-dataset/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 11 - Tokenizzazione Subword e Dataset Pubblico.pdf
+│   ├── Report Version 11 - Subword Tokenization and Public Dataset.pdf
+│   └── Version 11.png
+│
 ├── infographic.png
 ├── project-report-en.pdf
 ├── project-report-it.pdf
@@ -1031,16 +1330,22 @@ building-llm/
 
 - Python 3
 - NumPy
+- Pandas
 - TensorFlow
+- Hugging Face `tokenizers`
 - Jupyter Notebook or JupyterLab
 
 Version 1 uses only Python's standard library.
 
 Versions 2 and 3 use NumPy for numerical representation and model training.
 
-Versions 4, 5, 6, 7, 8 and 9 use NumPy for reproducible data handling and sampling, while TensorFlow performs model calculations, trainable parameter updates and automatic differentiation.
+Versions 4 through 10 use NumPy and TensorFlow for numerical operations, model calculations, trainable parameter updates and automatic differentiation.
+
+Version 11 additionally uses Pandas to read WikiText-103 Parquet files and the Hugging Face `tokenizers` library to train and apply the BPE tokenizer.
 
 No GPU is required.
+
+Version 11 also requires the documented WikiText-103 Raw v1 dataset files to be available at the dataset path expected by the notebook. The saved notebook is configured for the attached Kaggle dataset input.
 
 Clone the repository:
 
@@ -1058,7 +1363,7 @@ jupyter notebook
 Then open:
 
 ```text
-v09-transformer-block/building-llm.ipynb
+v11-subword-tokenization-public-dataset/building-llm.ipynb
 ```
 
 Run the cells in order.
@@ -1073,9 +1378,13 @@ Instead of starting with a complex Transformer, the project introduces each mech
 
 Each new version continues the same educational journey while preserving the completed stages as reference implementations.
 
-Version 9 intentionally keeps the Transformer implementation explicit rather than immediately hiding its components inside high-level classes. This makes the causal attention, residual connections, normalization and feed-forward computations directly inspectable.
+Version 9 introduces the internal structure of one explicit causal Transformer block.
 
-As the architecture grows in later versions, these components can be progressively organized into reusable classes or modules without removing the mathematical structure already introduced.
+Version 10 reorganizes that same mathematics into reusable components and stacks two independent Transformer blocks, making the decoder-only architecture easier to extend without hiding its internal operations.
+
+Version 11 deliberately keeps the Transformer core unchanged and moves the educational focus to data representation: a documented public corpus, official dataset splits and BPE subword tokenization replace the tiny hardcoded character corpus.
+
+This keeps the architectural transition and the data/tokenization transition separate and directly inspectable.
 
 ## Roadmap
 
@@ -1088,42 +1397,43 @@ As the architecture grows in later versions, these components can be progressive
 - [x] GRU
 - [x] Scaled dot-product attention
 - [x] Transformer block
-- [ ] Decoder-only Transformer
-- [ ] Subword tokenization and public datasets
-- [ ] Kaggle training pipeline and checkpoints
+- [x] Decoder-only Transformer
+- [x] Subword tokenization and public datasets
+- [ ] Training pipeline and checkpoints
 - [ ] Evaluation and controlled generation
 - [ ] Instruction tuning
 - [ ] Reproducible advanced small LLM
 
 ## Current limitations
 
-Version 9 is intentionally small and explicit:
+Version 11 is intentionally small and explicit:
 
-- the context still has a fixed length of four characters;
-- the training corpus contains only 440 characters and is embedded directly in the notebook;
-- the vocabulary contains only 27 characters;
-- neighboring sliding windows overlap heavily;
-- the random example-level training/validation split can therefore place highly related windows in both sets;
-- validation loss is useful as a learning monitor but is not a robust estimate of generalization to unseen text;
-- the model contains only one Transformer block;
-- the model uses a single attention mechanism rather than multi-head attention;
-- the embedding dimension remains only 8;
+- only controlled subsets of WikiText-103 Raw v1 are used rather than full-dataset training;
+- the selected experiment uses 10,000 training rows, 1,000 validation rows and 1,000 test rows;
+- the model uses at most 12,000 training sequences, 2,000 validation sequences and 2,000 test sequences;
+- the context length is fixed at 16 BPE tokens;
+- the tokenizer vocabulary contains only 2048 tokens;
+- the BPE configuration uses simple whitespace pre-tokenization;
+- whitespace pre-tokenization can produce spaces before punctuation after decoding;
+- the model representation dimension remains only 8;
 - the attention dimension is only 16;
 - the feed-forward hidden dimension is only 16;
+- the model contains only two Transformer blocks;
+- each block uses one attention mechanism rather than multi-head attention;
 - dropout is not used;
 - attention, feed-forward and output projections intentionally do not use bias terms;
-- training uses plain mini-batch gradient descent with a fixed learning rate;
+- training uses plain mini-batch gradient descent with a fixed learning rate of `1.0`;
 - no learning-rate schedule is used;
-- early stopping is not implemented;
-- the best validation checkpoint is not automatically restored;
-- generation therefore uses the final epoch-100 parameters rather than the parameters from the best validation epoch;
-- the entire Transformer block is recomputed for every four-character generation step;
-- the implementation deliberately passes the trainable variables explicitly, which is useful for learning but is becoming verbose;
-- later versions can organize the Transformer components into classes or reusable modules;
-- generated text captures local character patterns but still has limited long-range coherence;
-- the model is still a small educational character-level language model rather than a practical large language model.
+- no mixed-precision training is used;
+- checkpoint saving, restoration and resume logic are not yet implemented;
+- the model retains the final epoch parameters rather than automatically restoring a best validation checkpoint;
+- generation uses deterministic greedy decoding rather than temperature, top-k or top-p sampling;
+- greedy generation can amplify repetitive output patterns;
+- evaluation remains intentionally lightweight;
+- more systematic evaluation and controlled generation are reserved for later versions;
+- the model is still a small educational language model rather than a practical large language model.
 
-These limitations define the current stage of the project and prepare the transition from one explicit Transformer block to a more complete decoder-only language model in Version 10.
+These limitations define the current stage of the project and prepare the transition to **Version 12: Training pipeline and checkpoints**.
 
 ## License
 
