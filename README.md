@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Jupyter Notebook](https://img.shields.io/badge/Jupyter-Notebook-F37626?logo=jupyter&logoColor=white)
 
-A progressive educational project that shows how language models are built step by step, from a simple character-level statistical model to a small decoder-only Transformer using subword tokenization and a documented public dataset.
+A progressive educational project that shows how language models are built step by step, from a simple character-level statistical model to a small decoder-only Transformer with public data, subword tokenization, checkpointed training, held-out evaluation, controlled generation, instruction tuning and explicit multi-head causal self-attention.
 
 The project begins with standard Python and introduces one new concept in each version. The goal is not to compete with industrial models, but to make tokenization, probability, training, neural networks, attention and autoregressive generation easier to understand.
 
@@ -16,7 +16,7 @@ The complete project evolves through five main stages:
 2. neural foundations;
 3. sequence models;
 4. attention and Transformer architecture;
-5. a small decoder-only language model with subword tokenization and public data.
+5. a small decoder-only language model with public data, checkpointed training, evaluation, controlled generation, instruction tuning and multi-head causal self-attention.
 
 Each stage introduces the concepts required by the next one while keeping the implementation understandable and verifiable.
 
@@ -24,78 +24,59 @@ Each stage introduces the concepts required by the next one while keeping the im
 
 ## Current version
 
-Version 11 keeps the small decoder-only Transformer introduced in Version 10 and changes how language enters the model.
+Version 15 is the final planned stage of the original project roadmap. It preserves the complete Version 14 pipeline and introduces one isolated architectural change: **explicit multi-head causal self-attention**.
 
-It continues directly from Version 10:
+It continues directly from Version 14:
 
-- the two reusable causal Transformer blocks are preserved;
-- residual connections, LayerNorm operations and position-wise feed-forward networks remain unchanged;
-- the tiny hardcoded 440-character corpus is replaced by the public **WikiText-103 Raw v1** dataset;
-- the original training, validation and test split boundaries are preserved;
-- controlled subsets are sampled independently from the three official splits;
-- character-level tokenization is replaced by **Byte Pair Encoding (BPE)**;
-- the BPE tokenizer is trained only on the selected training subset;
-- the tokenizer uses a vocabulary of 2048 tokens, including the special `[UNK]` token;
-- each WikiText row is tokenized independently;
-- fixed-length windows contain 17 BPE tokens;
-- the first 16 tokens form the model input and the same sequence shifted by one token forms the 16-token target;
-- a stride of 16 limits overlap and incomplete final windows are discarded;
-- token embeddings replace character embeddings;
-- trainable positional embeddings now represent 16 sequence positions;
-- both Transformer blocks preserve an 8-dimensional model representation;
-- vocabulary logits are produced at all 16 sequence positions;
-- sparse softmax cross-entropy is calculated over all sequential targets;
-- `tf.GradientTape` calculates gradients for all 23 trainable TensorFlow variables;
-- sparse embedding gradients are updated with `scatter_sub`, while dense gradients use `assign_sub`;
-- training, validation and test losses are evaluated separately;
-- next-token probabilities are inspected on unseen test data;
-- generation uses deterministic greedy decoding with a sliding 16-token BPE context;
-- causal attention is inspected independently in both Transformer blocks.
+- WikiText-103 Raw v1 remains the public language-modeling dataset;
+- the BPE tokenizer is still trained only on the selected WikiText training subset;
+- the 2048-token vocabulary and 16-token context remain unchanged;
+- training, validation and test split boundaries remain separate;
+- the two-block decoder-only Transformer is preserved;
+- the model still contains exactly 23 trainable TensorFlow variables and 34,496 trainable parameters;
+- base training still uses the Version 12 LAST/BEST checkpoint pipeline;
+- held-out WikiText evaluation from Version 13 is preserved;
+- temperature, top-k and top-p decoding controls remain available;
+- the deterministic 256-row Databricks Dolly 15K subset from Version 14 is preserved;
+- the instruction split remains 192 training / 32 validation / 32 test rows;
+- prompt formatting remains `Instruction / optional Context / Response`;
+- supervised instruction loss still uses response-focused masking;
+- the BEST instruction checkpoint is still selected only from masked validation loss;
+- base-versus-tuned controlled generation remains part of the final experiment;
+- the 16-dimensional attention projection is now split into **2 independent heads of 8 dimensions each**;
+- each head applies its own causal scaled dot-product attention;
+- every head is normalized independently and cannot attend to future positions;
+- the two head outputs are concatenated back to 16 dimensions;
+- the same `16 × 8` attention-output projection returns to the 8-dimensional model representation;
+- no additional trainable matrices are introduced, so the parameter count remains unchanged.
 
-The original WikiText-103 Raw v1 split sizes are:
+The key Version 15 attention shapes are:
 
 ```text
-Training rows:   1,801,350
-Validation rows:     3,760
-Test rows:           4,358
+Input representation:      (batch, 16, 8)
+Projected Q / K / V:       (batch, 16, 16)
+Split into heads:          (batch, 2, 16, 8)
+Per-head attention:        (batch, 2, 16, 16)
+Concatenated head output:  (batch, 16, 16)
+Attention output:          (batch, 16, 8)
 ```
 
-Version 11 uses controlled subsets:
+The final model configuration remains:
 
 ```text
-Selected training rows:   10,000
-Selected validation rows:  1,000
-Selected test rows:        1,000
-
-Used training sequences:   12,000
-Used validation sequences:  2,000
-Used test sequences:        2,000
+Vocabulary size:          2048
+Context length:             16
+Embedding dimension:         8
+Attention dimension:        16
+Attention heads:             2
+Head dimension:              8
+Feed-forward dimension:     16
+Transformer blocks:          2
+Trainable variables:        23
+Trainable parameters:   34,496
 ```
 
-The tokenizer vocabulary and model configuration are:
-
-```text
-Vocabulary size:     2048
-Context length:        16
-Embedding dimension:    8
-Attention dimension:   16
-Feed-forward dimension: 16
-Transformer blocks:     2
-```
-
-The model contains exactly 34,496 trainable parameters:
-
-```text
-Token embeddings:              2048 × 8  = 16,384
-Positional embeddings:           16 × 8  =    128
-Transformer block 1:                         800
-Transformer block 2:                         800
-Output weights:                   8 × 2048 = 16,384
---------------------------------------------------
-Total:                                     34,496
-```
-
-Training uses:
+Base language-model training still uses:
 
 ```text
 Learning rate: 1.0
@@ -104,106 +85,150 @@ Epochs:        20
 Seed:          42
 ```
 
-The saved execution produces:
+The saved Version 15 base-model execution produces:
 
 ```text
-Initial training loss:   7.626767
-Final training loss:     4.987922
-Initial validation loss: 7.626187
-Final validation loss:   5.085637
-Test loss:               5.117153
-Uniform baseline:        7.624619
+Initial training loss:      7.626327
+Initial validation loss:    7.625874
+Best validation epoch:             18
+Best validation loss:       5.075184
+Final training loss:        4.982092
+Final validation loss:      5.075184
+
+Held-out cross-entropy:      5.098042
+Held-out perplexity:       163.701
+Top-1 accuracy:              0.0986
+Top-5 accuracy:              0.2401
+Uniform CE baseline:         7.624619
+Uniform PPL baseline:     2048.0
+```
+
+Instruction tuning uses:
+
+```text
+Dataset:                  Databricks Dolly 15K
+Selected rows:            256
+Train / validation / test: 192 / 32 / 32
+Instruction batch size:    32
+Instruction learning rate: 0.15
+Instruction epochs:         8
+Max useful windows/example: 2
+Generated BPE tokens:      16
+```
+
+The saved Version 15 instruction-tuning execution produces:
+
+```text
+Initial masked train loss:       5.273911
+Initial masked validation loss:  5.297913
+Best instruction epoch:                 5
+Best instruction validation loss: 5.180870
+Final masked train loss:         4.883737
+Final masked validation loss:    5.180870
+Instruction test masked loss:    5.182242
+Instruction test perplexity:   178.082
 ```
 
 These values describe the saved execution. Small numerical differences may appear across TensorFlow environments.
 
-Version 11 completes the transition from a tiny character-level educational model to a small decoder-only Transformer that operates on learned subword tokens from a documented public dataset. The Transformer core remains intentionally small and inspectable so the effect of the new data representation can be studied directly.
+Version 15 completes the original V1-V15 educational arc without turning the final notebook into a production training framework. The final architectural change remains small, explicit, inspectable and directly testable.
 
 ## Current architecture
 
 ```text
 WikiText-103 Raw v1
         ↓
-Original Train / Validation / Test Splits
+Official Train / Validation / Test Splits
         ↓
-Remove Empty Text Rows
-        ↓
-Independent Seed-Controlled Subsets
+Remove Empty Rows + Independent Seed-Controlled Subsets
         ↓
 BPE Tokenizer
-(trained only on selected training text)
+(trained only on selected WikiText training text)
         ↓
 2048-Token Vocabulary
         ↓
-Each Text Row Tokenized Independently
+17-Token Windows
         ↓
-17-Token Fixed-Length Windows
-        ↓
-Input:  16 BPE Tokens
+Input: 16 BPE Tokens
 Target: Same Window Shifted by 1 Token
         ↓
-Stride = 16
+12k / 2k / 2k Capped Train / Validation / Test Sequences
         ↓
-Capped Train / Validation / Test Sequences
-        ↓
-Trainable Token Embedding Matrix (2048, 8)
+Trainable Token Embeddings (2048, 8)
         +
-Trainable Positional Embedding Matrix (16, 8)
+Trainable Positional Embeddings (16, 8)
         ↓
-Positioned Token Representations (16 × 8)
+Positioned Representations (16 × 8)
         ↓
 Transformer Block 1
         ↓
-Query / Key / Value Projections (16 × 16)
+Q / K / V Projections (8 → 16)
         ↓
-Causal Scaled Dot-Product Attention (16 × 16)
+Split into 2 Heads × 8 Dimensions
+        ↓
+Independent Causal Scaled Dot-Product Attention per Head
+        ↓
+Per-Head Attention Matrices (16 × 16)
+        ↓
+Concatenate Heads (16D)
         ↓
 Attention Output Projection (16 → 8)
         ↓
 Residual + LayerNorm
         ↓
-Position-Wise Feed-Forward Network (8 → 16 → 8)
+Feed-Forward Network (8 → 16 → 8)
         ↓
 Residual + LayerNorm
         ↓
 Transformer Block 2
         ↓
-Query / Key / Value Projections (16 × 16)
-        ↓
-Causal Scaled Dot-Product Attention (16 × 16)
-        ↓
-Attention Output Projection (16 → 8)
-        ↓
-Residual + LayerNorm
-        ↓
-Position-Wise Feed-Forward Network (8 → 16 → 8)
-        ↓
-Residual + LayerNorm
-        ↓
-Final Transformer Output (16 × 8)
-        ↓
-Trainable Output Weight Matrix (8, 2048)
+Same Explicit 2-Head Causal Attention Pipeline
         ↓
 Vocabulary Logits at All 16 Positions
         ↓
-Sparse Cross-Entropy Loss over All 16 Targets
+Sparse Cross-Entropy Loss
         ↓
-Automatic Gradients with tf.GradientTape
+Manual Mini-Batch Gradient Descent with tf.GradientTape
         ↓
-Manual Mini-Batch Gradient Descent
+Train Epochs 1–10
         ↓
-Training / Validation Monitoring
+LAST Checkpoint
         ↓
-Final Test Evaluation
+Fresh Model Restore + Resume Epochs 11–20
         ↓
-Final-Position Next-Token Probabilities
+BEST Checkpoint Selected by Validation Loss
         ↓
-Sliding 16-Token Greedy Autoregressive Generation
+Fresh BEST-Restored Base Model
         ↓
-Generated Text
+Held-Out WikiText Evaluation
+Cross-Entropy / Perplexity / Top-1 / Top-5
+        ↓
+Controlled Generation
+Greedy / Temperature / Top-k / Top-p
+        ↓
+Databricks Dolly 15K Subset
+192 Train / 32 Validation / 32 Test
+        ↓
+Instruction / Optional Context / Response Formatting
+        ↓
+16-Token Response-Focused Windows
+        ↓
+Response Mask
+0 = prompt target / 1 = response target
+        ↓
+Masked Supervised Fine-Tuning
+8 Epochs / LR 0.15
+        ↓
+BEST Instruction Checkpoint
+        ↓
+Held-Out Dolly Evaluation
+        ↓
+Base BEST vs Tuned BEST Controlled Generation
+        ↓
+Per-Head Attention Inspection + Final Tests
 ```
 
-The important architectural distinction from Version 10 is at the input and output boundaries: character identifiers and a 27-character vocabulary are replaced by BPE token identifiers and a 2048-token vocabulary. The internal two-block causal Transformer structure remains deliberately unchanged.
+The important Version 15 distinction is internal to self-attention. Versions 11 through 14 use one 16-dimensional attention space per Transformer block. Version 15 reorganizes the same 16 projected dimensions into two independently normalized 8-dimensional causal heads, then concatenates them before the unchanged output projection. Because the trainable matrix shapes are preserved, the model remains exactly 34,496 parameters.
 
 ## Version 1 - Character Statistical Model
 
@@ -482,7 +507,7 @@ Generation remains autoregressive, but the context now moves as a sliding four-c
 
 Open the folder:
 
-[`v05-embeddings-context-window`](v05-embeddings-context-window/)
+[`v05-embeddings-context`](v05-embeddings-context/)
 
 ## Version 6 - Recurrent Language Model
 
@@ -985,22 +1010,22 @@ The saved training execution produces:
 
 ```text
 Initial training loss:   3.295300
-Final training loss:     1.844497
+Final training loss:     1.892438
 Initial validation loss: 3.291214
-Final validation loss:   2.177593
-Best validation loss:    2.126416
-Best validation epoch:   98
+Final validation loss:   2.220907
+Best validation loss:    2.141364
+Best validation epoch:   68
 ```
 
 For context `mode`, the saved final-position probabilities begin with:
 
 ```text
-space  0.3901
-t      0.1992
-l      0.1369
-r      0.0717
-c      0.0697
-s      0.0373
+space  0.4307
+t      0.1878
+l      0.1060
+r      0.0732
+c      0.0668
+s      0.0394
 ```
 
 Both blocks preserve the causal constraint. Every attention row sums to approximately 1 and every future-position weight is zero.
@@ -1171,7 +1196,259 @@ Version 11 completes the transition from character-level educational language mo
 
 Open the folder:
 
-[`v11-subword-tokenization-public-dataset`](v11-subword-tokenization-public-dataset/)
+[`v11-subword-tokenization-and-public-dataset`](v11-subword-tokenization-and-public-dataset/)
+
+
+## Version 12 - Training Pipeline and Checkpoints
+
+Version 12 preserves the complete Version 11 WikiText/BPE language-model experiment and adds explicit training-state management.
+
+The model architecture, tokenizer, selected dataset rows, sequence caps, context length, parameter count, learning rate and total training budget remain unchanged.
+
+The new concept is the separation between:
+
+```text
+LAST → where training can resume
+BEST → which model validation selects
+FINAL → fresh model restored from BEST for test and analysis
+```
+
+Training is intentionally interrupted after epoch 10. A fresh model restores the LAST checkpoint and resumes from epoch 11 through epoch 20.
+
+The checkpoint state remains deliberately minimal:
+
+```text
+LAST:
+model
+completed_epoch
+best_epoch
+best_validation_loss
+
+BEST:
+model
+best_epoch
+best_validation_loss
+```
+
+The runtime directory is recreated at the beginning of each Run All. Persistent cross-session checkpoint infrastructure is intentionally outside the scope of this educational version.
+
+The saved execution produces:
+
+```text
+Initial training loss:    7.626330
+Initial validation loss:  7.625952
+Best validation epoch:          18
+Best validation loss:     5.074273
+Final training loss:      4.986566
+Final validation loss:    5.074273
+Test loss:                5.105811
+Uniform baseline:         7.624619
+```
+
+The important lesson is that LAST and BEST are not necessarily the same model. LAST answers where training ended; BEST answers which observed parameters validation selected.
+
+Open the folder:
+
+[`v12-training-pipeline-and-checkpoints`](v12-training-pipeline-and-checkpoints/)
+
+## Version 13 - Evaluation and Controlled Generation
+
+Version 13 keeps the complete Version 12 training and checkpoint pipeline unchanged and adds a clearer held-out evaluation stage together with explicit decoding controls.
+
+The validation-selected BEST model is restored before the WikiText test split is measured.
+
+The new evaluation reports:
+
+```text
+Cross-entropy
+Perplexity
+Top-1 token accuracy
+Top-5 token accuracy
+```
+
+The saved held-out execution produces:
+
+```text
+Cross-entropy:  5.105321
+Perplexity:   164.897
+Top-1 accuracy: 0.1030
+Top-5 accuracy: 0.2402
+Evaluated tokens: 32,000
+```
+
+Version 13 also implements decoding controls directly from logits:
+
+```text
+Greedy:          argmax
+Temperature:     0.7 / 1.3
+Top-k:           k = 20
+Top-p:           p = 0.9
+```
+
+All generation modes:
+
+- start from the same held-out prompt;
+- keep the same 16-token context;
+- add exactly 40 new BPE tokens;
+- use a local NumPy random generator for stochastic sampling;
+- leave model weights unchanged.
+
+The tests verify the expected relationships and invariants, including `perplexity = exp(cross-entropy)`, top-5 accuracy being at least top-1 accuracy, finite normalized distributions, exactly 20 non-zero top-k probabilities, reproducible seeded top-p sampling and preserved causal attention.
+
+Open the folder:
+
+[`v13-evaluation-and-controlled-generation`](v13-evaluation-and-controlled-generation/)
+
+## Version 14 - Instruction Tuning
+
+Version 14 preserves the complete Version 13 base model and adds a second learning stage: **supervised instruction tuning**.
+
+A deterministic subset of **Databricks Dolly 15K** is used:
+
+```text
+Selected rows: 256
+
+Training:       192
+Validation:      32
+Test:            32
+```
+
+Each record is converted into an explicit prompt:
+
+```text
+Instruction: {instruction}
+
+Context: {context}        # only when non-empty
+
+Response: {response}
+```
+
+The BPE tokenizer from WikiText is reused rather than retrained on Dolly.
+
+The key new mechanism is response-focused masking. Prompt tokens remain visible to causal attention, but only response targets contribute to the supervised objective:
+
+```text
+prompt target   → response_mask = 0
+response target → response_mask = 1
+```
+
+The masked objective is:
+
+```text
+masked_loss =
+sum(token_loss × response_mask)
+/
+sum(response_mask)
+```
+
+Instruction tuning uses:
+
+```text
+Batch size:       32
+Learning rate:  0.15
+Epochs:             8
+Shuffle seed: SEED + 1000 + epoch
+```
+
+The instruction model is created as a fresh instance and initialized exactly from the selected base BEST parameters.
+
+Dolly validation selects a separate BEST instruction checkpoint. The held-out Dolly test split is measured only after selection.
+
+The saved instruction execution produces:
+
+```text
+Initial masked training loss:    5.281624
+Initial masked validation loss:  5.333013
+Best instruction epoch:                 8
+Best instruction validation loss: 5.191426
+Final masked training loss:      4.788731
+Final masked validation loss:    5.191427
+Instruction test masked loss:    5.231103
+Instruction test perplexity:   186.999
+```
+
+Base and instruction-tuned models are compared on the same Dolly test prompt with greedy and top-p `0.9` generation, adding 16 BPE tokens.
+
+This comparison demonstrates the mechanics of supervised adaptation. The notebook deliberately does **not** claim a guaranteed semantic improvement and does not compute instruction-adherence, helpfulness, safety or human-preference scores.
+
+Open the folder:
+
+[`v14-instruction-tuning`](v14-instruction-tuning/)
+
+## Version 15 - Explicit Multi-Head Causal Self-Attention
+
+Version 15 preserves the complete Version 14 data, training, evaluation, checkpoint and instruction-tuning pipeline. The only new concept is explicit **multi-head causal self-attention**.
+
+The existing 16-dimensional attention projection is reorganized into:
+
+```text
+Number of heads: 2
+Head dimension:  8
+Total attention dimension: 16
+```
+
+For each Transformer block:
+
+```text
+Input:                  (batch, 16, 8)
+Q / K / V:              (batch, 16, 16)
+Split:                  (batch, 2, 16, 8)
+Attention scores:       (batch, 2, 16, 16)
+Per-head causal softmax
+Head outputs:           (batch, 2, 16, 8)
+Concatenate:            (batch, 16, 16)
+Output projection:      (batch, 16, 8)
+```
+
+Each head computes its own scaled dot-product scores, causal mask, softmax distribution and weighted value combination.
+
+The tests verify independently for every head that:
+
+- attention rows sum to approximately 1;
+- all future-position entries are zero;
+- the attention tensor has the expected `(1, 2, 16, 16)` shape for the inspected example.
+
+The trainable matrices remain the same shapes as Version 14:
+
+```text
+Q projection:          8 × 16
+K projection:          8 × 16
+V projection:          8 × 16
+Attention output:     16 × 8
+```
+
+Therefore Version 15 introduces **no additional trainable matrices** and the complete model remains:
+
+```text
+23 trainable TensorFlow variables
+34,496 trainable parameters
+```
+
+The saved Version 15 base held-out evaluation produces:
+
+```text
+Cross-entropy:  5.098042
+Perplexity:   163.701
+Top-1 accuracy: 0.0986
+Top-5 accuracy: 0.2401
+```
+
+The saved instruction stage produces:
+
+```text
+Best instruction epoch:                 5
+Best instruction validation loss: 5.180870
+Final masked training loss:      4.883737
+Final masked validation loss:    5.180870
+Instruction test masked loss:    5.182242
+Instruction test perplexity:   178.082
+```
+
+Version 15 closes the planned V1-V15 arc with a final architectural evolution that is isolated, inspectable and testable without increasing model size.
+
+Open the folder:
+
+[`v15-multi-head-transformer-capstone`](v15-multi-head-transformer-capstone/)
 
 ## Project versions
 
@@ -1186,47 +1463,57 @@ Open the folder:
 | Version 7 | GRU language model | Completed |
 | Version 8 | Attention | Completed |
 | Version 9 | Transformer block | Completed |
-| Version 10 | Mini decoder-only language model | Completed |
-| Version 11 | Subword tokenization and public datasets | Completed |
-| Version 12 | Training pipeline and checkpoints | Planned |
-| Version 13 | Evaluation and controlled generation | Planned |
-| Version 14 | Instruction tuning | Planned |
-| Version 15 | Advanced small LLM | Planned |
+| Version 10 | Decoder-only Transformer | Completed |
+| Version 11 | Subword tokenization and public dataset | Completed |
+| Version 12 | Training pipeline and checkpoints | Completed |
+| Version 13 | Evaluation and controlled generation | Completed |
+| Version 14 | Instruction tuning | Completed |
+| Version 15 | Explicit multi-head causal self-attention | Completed |
 
 ## Included checks
 
-The Version 11 notebook verifies:
-
-- that the tokenizer vocabulary size is exactly 2048;
-- that training, validation and test input/target tensors use the configured 16-token sequence length and capped split sizes;
-- that token identifiers remain inside the tokenizer vocabulary;
-- that the first target sequence is the corresponding input shifted by one token;
-- that the model output has shape `(1, 16, 8)`;
-- that vocabulary logits have shape `(1, 16, 2048)`;
-- that the model contains exactly two independent Transformer block objects;
-- that the model contains exactly 23 trainable TensorFlow variables;
-- that the complete model contains exactly 34,496 trainable parameters;
-- that both attention matrices have shape `(16, 16)`;
-- that every attention row sums to approximately 1;
-- that every future-position attention weight is zero;
-- that final training loss is lower than initial training loss;
-- that final validation loss is lower than initial validation loss;
-- that test loss remains below the uniform-vocabulary baseline;
-- that training and validation loss histories contain exactly 20 finite values;
-- that final training, validation and test losses are finite;
-- that the inspected next-token probability distribution is finite and sums to approximately 1;
-- that final training and validation losses remain below the uniform-vocabulary baseline;
-- that the two Transformer block instances are distinct objects;
-- that autoregressive generation extends the prompt;
-- that autoregressive generation adds exactly 40 new BPE tokens.
-
-The final notebook test section finishes with:
+Every version ends with an explicit test section and the completed notebooks finish with:
 
 ```text
 All checks passed.
 ```
 
-The notebook can be executed from top to bottom without a GPU. NumPy, Pandas, TensorFlow and the Hugging Face `tokenizers` library are the main external computational dependencies used by Version 11.
+The final Version 15 notebook verifies the complete accumulated pipeline, including:
+
+- tokenizer vocabulary and configured tensor shapes;
+- the 2048-token BPE vocabulary and fixed 16-token contexts;
+- shifted next-token target construction;
+- exactly two independent Transformer blocks;
+- exactly 23 trainable TensorFlow variables;
+- exactly 34,496 trainable parameters;
+- LAST checkpoint restoration after the simulated interruption;
+- resume from epoch 11 through epoch 20;
+- BEST checkpoint selection using validation loss only;
+- held-out WikiText evaluation only after BEST restoration;
+- finite cross-entropy and perplexity values;
+- `perplexity = exp(cross-entropy)`;
+- top-5 token accuracy greater than or equal to top-1 accuracy;
+- finite, non-negative and normalized controlled probability distributions;
+- exact top-k support size;
+- reproducible seeded top-p sampling;
+- causal attention normalization;
+- zero attention to future positions;
+- exactly two attention heads;
+- head dimension equal to 8;
+- expected per-head attention shape `(1, 2, 16, 16)` for the inspected example;
+- independent causal masking in every attention head;
+- disjoint Dolly train / validation / test source rows;
+- explicit `Instruction / optional Context / Response` formatting;
+- binary response masks;
+- at least one response target in every retained instruction window;
+- instruction-model initialization from base BEST;
+- parameter updates during supervised fine-tuning;
+- BEST instruction-checkpoint selection and restoration;
+- finite masked training, validation and test losses;
+- reproducible controlled instruction generation;
+- expected generation lengths for both WikiText and Dolly demonstrations.
+
+The notebooks are designed to execute from top to bottom without requiring a GPU.
 
 ## Documentation
 
@@ -1310,11 +1597,35 @@ building-llm/
 │   ├── Report Version 10 - Decoder Only Transformer.pdf
 │   └── Version 10.png
 │
-├── v11-subword-tokenization-public-dataset/
+├── v11-subword-tokenization-and-public-dataset/
 │   ├── building-llm.ipynb
 │   ├── Relazione Versione 11 - Tokenizzazione Subword e Dataset Pubblico.pdf
 │   ├── Report Version 11 - Subword Tokenization and Public Dataset.pdf
 │   └── Version 11.png
+│
+├── v12-training-pipeline-and-checkpoints/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 12 - Pipeline di Training e Checkpoint.pdf
+│   ├── Report Version 12 - Training Pipeline and Checkpoints.pdf
+│   └── Version 12.png
+│
+├── v13-evaluation-and-controlled-generation/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 13 - Valutazione e Generazione Controllata.pdf
+│   ├── Report Version 13 - Evaluation and Controlled Generation.pdf
+│   └── Version 13.png
+│
+├── v14-instruction-tuning/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 14 - Instruction Tuning.pdf
+│   ├── Report Version 14 - Instruction Tuning.pdf
+│   └── Version 14.png
+│
+├── v15-multi-head-transformer-capstone/
+│   ├── building-llm.ipynb
+│   ├── Relazione Versione 15 - Self-Attention Causale Multi-Head Esplicita.pdf
+│   ├── Report Version 15 - Explicit Multi-Head Causal Self-Attention.pdf
+│   └── Version 15.png
 │
 ├── infographic.png
 ├── project-report-en.pdf
@@ -1341,11 +1652,15 @@ Versions 2 and 3 use NumPy for numerical representation and model training.
 
 Versions 4 through 10 use NumPy and TensorFlow for numerical operations, model calculations, trainable parameter updates and automatic differentiation.
 
-Version 11 additionally uses Pandas to read WikiText-103 Parquet files and the Hugging Face `tokenizers` library to train and apply the BPE tokenizer.
+Versions 11 through 15 additionally use Pandas to read WikiText-103 Parquet files and the Hugging Face `tokenizers` library to train and apply the BPE tokenizer.
+
+Versions 14 and 15 also require the external Databricks Dolly 15K instruction dataset file expected by the notebook.
 
 No GPU is required.
 
-Version 11 also requires the documented WikiText-103 Raw v1 dataset files to be available at the dataset path expected by the notebook. The saved notebook is configured for the attached Kaggle dataset input.
+Versions 11 through 15 require the documented WikiText-103 Raw v1 dataset files to be available at the dataset path expected by the notebook. The saved notebooks are configured for the attached Kaggle dataset input.
+
+Versions 14 and 15 deliberately do not download or silently replace missing Dolly data. If the external instruction dataset is unavailable, the notebook stops explicitly.
 
 Clone the repository:
 
@@ -1360,10 +1675,10 @@ Start Jupyter Notebook:
 jupyter notebook
 ```
 
-Then open:
+To inspect the final planned version, open:
 
 ```text
-v11-subword-tokenization-public-dataset/building-llm.ipynb
+v15-multi-head-transformer-capstone/building-llm.ipynb
 ```
 
 Run the cells in order.
@@ -1376,15 +1691,23 @@ The project follows one main principle:
 
 Instead of starting with a complex Transformer, the project introduces each mechanism through small and understandable steps.
 
-Each new version continues the same educational journey while preserving the completed stages as reference implementations.
+Each new version continues the same educational journey while preserving completed stages as reference implementations.
 
 Version 9 introduces the internal structure of one explicit causal Transformer block.
 
-Version 10 reorganizes that same mathematics into reusable components and stacks two independent Transformer blocks, making the decoder-only architecture easier to extend without hiding its internal operations.
+Version 10 reorganizes the same mathematics into reusable components and stacks two independent Transformer blocks.
 
-Version 11 deliberately keeps the Transformer core unchanged and moves the educational focus to data representation: a documented public corpus, official dataset splits and BPE subword tokenization replace the tiny hardcoded character corpus.
+Version 11 deliberately keeps the Transformer core unchanged and moves the educational focus to data representation: public WikiText data and BPE subword tokenization replace the tiny hardcoded character corpus.
 
-This keeps the architectural transition and the data/tokenization transition separate and directly inspectable.
+Version 12 keeps the model unchanged and makes training state explicit through LAST and BEST checkpoints, restore and resume.
+
+Version 13 keeps training unchanged and separates model selection, held-out test evaluation and decoding strategy.
+
+Version 14 keeps the base architecture unchanged and adds supervised instruction tuning through explicit prompt formatting and response-focused masked loss.
+
+Version 15 keeps the full data, training, evaluation and instruction pipeline unchanged and introduces explicit two-head causal self-attention without increasing the parameter count.
+
+This separation keeps architectural changes, data changes, training-state changes, evaluation changes and supervised adaptation directly inspectable instead of introducing them all at once.
 
 ## Roadmap
 
@@ -1399,41 +1722,60 @@ This keeps the architectural transition and the data/tokenization transition sep
 - [x] Transformer block
 - [x] Decoder-only Transformer
 - [x] Subword tokenization and public datasets
-- [ ] Training pipeline and checkpoints
-- [ ] Evaluation and controlled generation
-- [ ] Instruction tuning
-- [ ] Reproducible advanced small LLM
+- [x] Training pipeline and checkpoints
+- [x] Evaluation and controlled generation
+- [x] Instruction tuning
+- [x] Explicit multi-head causal self-attention
+
+The original V1-V15 roadmap is complete.
 
 ## Current limitations
 
-Version 11 is intentionally small and explicit:
+Version 15 is intentionally small, explicit and educational:
 
 - only controlled subsets of WikiText-103 Raw v1 are used rather than full-dataset training;
-- the selected experiment uses 10,000 training rows, 1,000 validation rows and 1,000 test rows;
+- the language-model experiment uses 10,000 training rows, 1,000 validation rows and 1,000 test rows;
 - the model uses at most 12,000 training sequences, 2,000 validation sequences and 2,000 test sequences;
-- the context length is fixed at 16 BPE tokens;
+- context length remains fixed at 16 BPE tokens;
 - the tokenizer vocabulary contains only 2048 tokens;
-- the BPE configuration uses simple whitespace pre-tokenization;
+- the whitespace-based BPE configuration is intentionally simple;
 - whitespace pre-tokenization can produce spaces before punctuation after decoding;
 - the model representation dimension remains only 8;
-- the attention dimension is only 16;
-- the feed-forward hidden dimension is only 16;
+- total attention dimension remains 16;
+- multi-head attention uses only two 8-dimensional heads;
+- the feed-forward hidden dimension remains 16;
 - the model contains only two Transformer blocks;
-- each block uses one attention mechanism rather than multi-head attention;
-- dropout is not used;
-- attention, feed-forward and output projections intentionally do not use bias terms;
-- training uses plain mini-batch gradient descent with a fixed learning rate of `1.0`;
-- no learning-rate schedule is used;
-- no mixed-precision training is used;
-- checkpoint saving, restoration and resume logic are not yet implemented;
-- the model retains the final epoch parameters rather than automatically restoring a best validation checkpoint;
-- generation uses deterministic greedy decoding rather than temperature, top-k or top-p sampling;
-- greedy generation can amplify repetitive output patterns;
-- evaluation remains intentionally lightweight;
-- more systematic evaluation and controlled generation are reserved for later versions;
-- the model is still a small educational language model rather than a practical large language model.
+- no dropout is used;
+- attention, feed-forward and output projections intentionally omit bias terms;
+- base training still uses manual mini-batch gradient descent with fixed learning rate `1.0`;
+- no learning-rate schedule, Adam, gradient clipping, mixed precision or large-scale distributed training is introduced;
+- the checkpoint state is deliberately minimal and the runtime directory is recreated for each clean Run All;
+- persistent resume across unrelated Kaggle sessions is outside the project scope;
+- controlled generation uses simple greedy, temperature, top-k and top-p rules rather than advanced search or production serving;
+- token-level WikiText metrics do not measure factuality, usefulness or instruction quality;
+- the Dolly experiment uses only 256 selected instruction records;
+- the inherited 16-token context truncates long instruction prompts;
+- the BPE tokenizer is reused rather than retrained on Dolly;
+- instruction tuning uses response-only supervised loss;
+- no preference optimization, RLHF, DPO, PPO, tool use or agent framework is included;
+- base-versus-tuned generation is a mechanical comparison and does not claim guaranteed semantic improvement;
+- the result remains a small educational language model rather than a practical large language model.
 
-These limitations define the current stage of the project and prepare the transition to **Version 12: Training pipeline and checkpoints**.
+These limitations are intentional. The project was designed to expose mechanisms clearly rather than maximize model quality or reproduce production-scale LLM engineering.
+
+## Project status
+
+**Building LLM is complete according to the V1-V15 structure originally planned for the project.**
+
+The repository now contains the full educational path from statistical character counts to a small decoder-only Transformer with public subword data, explicit checkpointed training, held-out evaluation, controlled generation, supervised instruction tuning and explicit multi-head causal self-attention.
+
+Version 15 therefore closes the original roadmap rather than opening another required development phase.
+
+The project can remain finished in this form. Documentation, compatibility fixes or small maintenance updates may still be made when useful.
+
+At the same time, the repository is intentionally not declared permanently frozen. If a future concept is worth studying with the same **one version, one concept, one verifiable result** philosophy, Building LLM may one day receive additional versions beyond Version 15.
+
+There is currently no required Version 16: any future continuation would be a new extension of an already completed project.
 
 ## License
 
